@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#e8590c">
+<title>Gas Meter Tracker</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%A5%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#f5f6f8;--card:#fff;--text:#1b1f27;--muted:#6a7280;--line:#e3e6ec;
+  --accent:#e8590c;--accent-t:#fff;--ok:#2b8a3e;--warn:#c92a2a;--bar:#f59f55;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#101318;--card:#1a1e26;--text:#eceff4;--muted:#98a1b0;--line:#2a303b;
+    --accent:#ff8a3d;--accent-t:#1b1000;--ok:#69db7c;--warn:#ff8787;--bar:#ff8a3d;
+  }
+}
+*,*:before,*:after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+main{max-width:560px;margin:0 auto;padding:16px 14px 40px}
+h1{font-size:20px;margin:4px 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:14px}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:var(--bg);border-radius:12px;padding:10px}
+.stat b{display:block;font-size:22px}
+.stat span{font-size:12px;color:var(--muted)}
+button{font:inherit;border:0;border-radius:12px;padding:13px 16px;background:var(--accent);color:var(--accent-t);font-weight:600;width:100%;cursor:pointer}
+button.sec{background:var(--bg);color:var(--text);border:1px solid var(--line)}
+button:disabled{opacity:.5}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{flex:1}
+label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
+input[type=text],input[type=datetime-local]{
+  font:inherit;width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+#digits{font-size:26px;font-weight:700;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+#computed{font-size:22px;font-weight:700;margin-top:10px}
+.step{display:flex;gap:8px;align-items:center;margin-top:10px}
+.step span.l{flex:1;color:var(--muted);font-size:14px}
+.step button{width:44px;padding:8px 0}
+.step b{min-width:20px;text-align:center}
+#preview{width:100%;max-height:140px;object-fit:contain;border-radius:10px;background:#000;display:none;margin-bottom:10px}
+.msg{font-size:14px;margin-top:8px;color:var(--muted);min-height:1.2em}
+.msg.err{color:var(--warn)}.msg.ok{color:var(--ok)}
+.hide{display:none!important}
+.entry{display:flex;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.entry:first-child{border-top:0}
+.entry img{width:64px;height:46px;border-radius:8px;object-fit:cover;background:var(--bg)}
+.entry .ph{width:64px;height:46px;border-radius:8px;background:var(--bg);display:grid;place-items:center;color:var(--muted);font-size:20px}
+.entry .m{flex:1;min-width:0}
+.entry .m b{font-variant-numeric:tabular-nums}
+.entry .m small{display:block;color:var(--muted)}
+.entry .d{text-align:right;font-size:13px;color:var(--muted)}
+.entry .d strong{color:var(--text);font-size:15px}
+.x{background:none!important;color:var(--muted)!important;width:auto;padding:6px 8px;font-weight:400;border-radius:8px}
+svg text{fill:var(--muted);font-size:10px}
+.empty{color:var(--muted);text-align:center;padding:16px 0}
+.sm{font-size:12px;color:var(--muted)}
+
+/* camera overlay */
+#cam{position:fixed;inset:0;background:#000;z-index:50;display:none;overflow:hidden}
+#cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#guide{position:absolute;left:5%;width:90%;top:50%;height:14%;transform:translateY(-50%);
+  border:3px solid #fff;border-radius:10px;box-shadow:0 0 0 100vmax rgba(0,0,0,.55);pointer-events:none}
+#camTop,#camBot{position:absolute;left:0;right:0;display:flex;gap:10px;padding:12px;color:#fff}
+#camTop{top:0;padding-top:calc(12px + env(safe-area-inset-top,0px));justify-content:space-between}
+#camBot{bottom:0;padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));flex-direction:column;align-items:center}
+#camTop button{width:auto;background:rgba(0,0,0,.45);color:#fff;border:1px solid rgba(255,255,255,.4)}
+#camBot p{margin:0 0 10px;text-shadow:0 1px 3px #000;text-align:center}
+#shoot{width:min(280px,80%);}
+</style>
+</head>
+<body>
+<main>
+  <h1>🔥 Gas Meter Tracker</h1>
+
+  <div class="card">
+    <h2>Consumption</h2>
+    <div class="stats">
+      <div class="stat"><b id="sLast">–</b><span>since last reading (m³)</span></div>
+      <div class="stat"><b id="sDay">–</b><span>avg m³ / day (last interval)</span></div>
+      <div class="stat"><b id="s30">–</b><span>last 30 days (m³)</span></div>
+      <div class="stat"><b id="sTotal">–</b><span>total tracked (m³)</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>New reading</h2>
+    <img id="preview" alt="Meter digits">
+    <div class="row">
+      <button id="btnScan">📷 Scan meter</button>
+      <button id="btnPhoto" class="sec">🖼 From photo</button>
+    </div>
+    <input id="photoIn" type="file" accept="image/*" capture="environment" class="hide">
+    <div class="msg" id="ocrMsg"></div>
+
+    <label for="digits">Digits on the register</label>
+    <input id="digits" type="text" inputmode="decimal" placeholder="e.g. 01234567" autocomplete="off">
+    <div class="step">
+      <span class="l">Red decimal digits</span>
+      <button class="sec" id="decMinus" aria-label="Fewer decimals">−</button>
+      <b id="decVal">3</b>
+      <button class="sec" id="decPlus" aria-label="More decimals">+</button>
+    </div>
+    <div id="computed">= –</div>
+    <div class="sm">Always check the digits against the meter. You can also type a value with a dot (e.g. 1234.567).</div>
+
+    <label for="when">Date &amp; time</label>
+    <input id="when" type="datetime-local">
+
+    <div style="height:14px"></div>
+    <button id="btnSave">Save reading</button>
+    <div class="msg" id="saveMsg"></div>
+  </div>
+
+  <div class="card">
+    <h2>Daily use per interval (m³/day)</h2>
+    <div id="chart"></div>
+  </div>
+
+  <div class="card">
+    <h2>History</h2>
+    <div id="list"></div>
+    <div style="height:10px"></div>
+    <div class="row">
+      <button id="btnCsv" class="sec">Export CSV</button>
+      <button id="btnImport" class="sec">Import CSV</button>
+    </div>
+    <input id="csvIn" type="file" accept=".csv,text/csv" class="hide">
+    <div class="msg" id="exMsg"></div>
+    <div class="sm" style="margin-top:8px">Data is stored in this browser on this device only. Export a CSV now and then as a backup.</div>
+  </div>
+</main>
+
+<div id="cam" role="dialog" aria-label="Camera">
+  <video id="video" playsinline muted autoplay></video>
+  <div id="guide"></div>
+  <div id="camTop">
+    <button id="camClose">✕ Close</button>
+    <button id="camTorch" class="hide">🔦 Light</button>
+  </div>
+  <div id="camBot">
+    <p>Put the meter digits inside the frame</p>
+    <button id="shoot">Capture</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  const KEY = "gasmeter:v1", DEC_KEY = "gasmeter:decimals";
+  const TESS_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+  const GUIDE_W = 0.90, GUIDE_H = 0.14;       // must match #guide in CSS
+  const $ = id => document.getElementById(id);
+
+  let entries = [];
+  let decimals = 3;
+  let curThumb = null;
+  let stream = null;
+
+  // ---------- storage ----------
+  function load(){
+    try{ entries = JSON.parse(localStorage.getItem(KEY) || "[]"); }catch(e){ entries = []; }
+    if(!Array.isArray(entries)) entries = [];
+    try{ const d = parseInt(localStorage.getItem(DEC_KEY),10); if(d>=0 && d<=5) decimals = d; }catch(e){}
+  }
+  function persist(){
+    try{ localStorage.setItem(KEY, JSON.stringify(entries)); return true; }
+    catch(e){
+      for(const en of entries){
+        if(en.thumb){ delete en.thumb; try{ localStorage.setItem(KEY, JSON.stringify(entries)); return true; }catch(_){} }
+      }
+      return false;
+    }
+  }
+  const sorted = () => entries.slice().sort((a,b)=>a.ts-b.ts);
+
+  // ---------- helpers ----------
+  const fmt = (n,d=2) => (n==null||isNaN(n)) ? "–" : Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+  const fmtDate = ts => new Date(ts).toLocaleString(undefined,{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+  function localInputValue(d){
+    const p = n => String(n).padStart(2,"0");
+    return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"T"+p(d.getHours())+":"+p(d.getMinutes());
+  }
+  function setMsg(el, text, cls){ el.textContent = text||""; el.className = "msg" + (cls?" "+cls:""); }
+
+  // "01234567" + 3 decimals -> 1234.567 ; "1234.567" stays as typed
+  function valueFrom(str, dec){
+    const s = String(str||"").trim().replace(",",".").replace(/\s+/g,"");
+    if(/^\d+\.\d+$/.test(s)) return parseFloat(s);
+    const digits = s.replace(/\D/g,"");
+    if(!digits) return null;
+    return parseFloat((Number(digits)/Math.pow(10,dec)).toFixed(dec));
+  }
+  function updateComputed(){
+    $("decVal").textContent = decimals;
+    const v = valueFrom($("digits").value, decimals);
+    $("computed").textContent = v==null ? "= –" : "= " + fmt(v, Math.max(decimals,3)) + " m³";
+  }
+  function setDecimals(n){
+    decimals = Math.max(0, Math.min(5, n));
+    try{ localStorage.setItem(DEC_KEY, String(decimals)); }catch(e){}
+    updateComputed();
+  }
+
+  // ---------- OCR (Tesseract.js, runs in the browser) ----------
+  let tessP = null, workerP = null;
+  function loadTesseract(){
+    if(window.Tesseract) return Promise.resolve();
+    if(!tessP) tessP = new Promise((res,rej)=>{
+      const s = document.createElement("script");
+      s.src = TESS_URL; s.onload = res; s.onerror = ()=>{ tessP=null; rej(new Error("load")); };
+      document.head.appendChild(s);
+    });
+    return tessP;
+  }
+  function getWorker(){
+    if(!workerP) workerP = (async()=>{
+      await loadTesseract();
+      const w = await Tesseract.createWorker("eng", 1, {
+        logger: m => {
+          if(m.status==="recognizing text") setMsg($("ocrMsg"), "Reading digits… "+Math.round((m.progress||0)*100)+"%");
+          else if(/loading|initializ/.test(m.status||"")) setMsg($("ocrMsg"), "Preparing reader (first time only)…");
+        }
+      });
+      await w.setParameters({ tessedit_char_whitelist:"0123456789", user_defined_dpi:"300" });
+      return w;
+    })().catch(e=>{ workerP=null; throw e; });
+    return workerP;
+  }
+
+  // grayscale + contrast stretch + white margin; invert=true for light digits on dark background
+  function prep(src, invert){
+    const targetW = Math.min(1600, Math.max(900, src.width));
+    const k = targetW/src.width;
+    const w = Math.round(src.width*k), h = Math.round(src.height*k), pad = 24;
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const x = c.getContext("2d",{willReadFrequently:true});
+    x.imageSmoothingQuality = "high"; x.drawImage(src,0,0,w,h);
+    const id = x.getImageData(0,0,w,h), d = id.data, n = w*h;
+    const g = new Uint8Array(n), hist = new Uint32Array(256);
+    for(let i=0;i<n;i++){ const y=(0.299*d[4*i]+0.587*d[4*i+1]+0.114*d[4*i+2])|0; g[i]=y; hist[y]++; }
+    let lo=0, acc=0; while(lo<255 && acc+hist[lo] < n*0.02){ acc+=hist[lo]; lo++; }
+    let hi=255; acc=0; while(hi>0 && acc+hist[hi] < n*0.02){ acc+=hist[hi]; hi--; }
+    if(hi-lo<10){ lo=0; hi=255; }
+    const sc = 255/(hi-lo);
+    for(let i=0;i<n;i++){
+      let v=(g[i]-lo)*sc; v = v<0?0:v>255?255:v; if(invert) v=255-v;
+      d[4*i]=d[4*i+1]=d[4*i+2]=v; d[4*i+3]=255;
+    }
+    x.putImageData(id,0,0);
+    const out = document.createElement("canvas"); out.width = w+2*pad; out.height = h+2*pad;
+    const ox = out.getContext("2d"); ox.fillStyle="#fff"; ox.fillRect(0,0,out.width,out.height); ox.drawImage(c,pad,pad);
+    return out;
+  }
+
+  function pickDigits(text){
+    const runs = (String(text).match(/\d[\d \t]*\d/g) || []).map(s=>s.replace(/\D/g,"")).filter(s=>s.length>=5 && s.length<=10);
+    if(runs.length) return runs.sort((a,b)=>b.length-a.length)[0];
+    const all = String(text).replace(/\D/g,"");
+    return (all.length>=5 && all.length<=10) ? all : "";
+  }
+
+  async function recognize(raw, mode){
+    const worker = await getWorker();
+    // 7 = single line (tight crop from the live camera), 11 = sparse text (whole photo)
+    await worker.setParameters({ tessedit_pageseg_mode: mode==="band" ? "7" : "11" });
+    let best = "";
+    for(const inv of [false,true]){
+      const r = await worker.recognize(prep(raw, inv));
+      const dg = pickDigits(r.data.text);
+      if(dg.length > best.length) best = dg;
+      if(best.length>=6) break;
+    }
+    return best;
+  }
+
+  async function process(raw, mode, thumbSrc){
+    setMsg($("saveMsg"),"");
+    // preview + thumbnail
+    $("preview").src = thumbSrc.toDataURL("image/jpeg",0.8); $("preview").style.display = "block";
+    const tw = 160, th = Math.max(1, Math.round(thumbSrc.height*tw/thumbSrc.width));
+    const tc = document.createElement("canvas"); tc.width = tw; tc.height = th;
+    tc.getContext("2d").drawImage(thumbSrc,0,0,tw,th);
+    curThumb = tc.toDataURL("image/jpeg",0.5);
+    $("when").value = localInputValue(new Date());
+    $("btnScan").disabled = $("btnPhoto").disabled = true;
+    setMsg($("ocrMsg"),"Preparing reader…");
+    try{
+      const digits = await recognize(raw, mode);
+      if(digits){
+        $("digits").value = digits; updateComputed();
+        setMsg($("ocrMsg"),"Done — compare the digits with the photo and correct if needed.","ok");
+      }else{
+        setMsg($("ocrMsg"),"Couldn't find digits. Retake with more light, or type them in.","err");
+        $("digits").focus();
+      }
+    }catch(e){
+      setMsg($("ocrMsg"),"Reader couldn't load (are you online?). Type the digits manually.","err");
+    }finally{
+      $("btnScan").disabled = $("btnPhoto").disabled = false;
+    }
+  }
+
+  // ---------- live camera ----------
+  async function openCamera(){
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ $("photoIn").click(); return; }
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({
+        video:{ facingMode:{ideal:"environment"}, width:{ideal:1920}, height:{ideal:1080} }, audio:false
+      });
+    }catch(e){
+      setMsg($("ocrMsg"),"Camera not available — use “From photo” instead.","err");
+      return;
+    }
+    const v = $("video"); v.srcObject = stream;
+    $("cam").style.display = "block";
+    try{ await v.play(); }catch(e){}
+    const track = stream.getVideoTracks()[0];
+    const caps = (track.getCapabilities && track.getCapabilities()) || {};
+    $("camTorch").classList.toggle("hide", !caps.torch);
+    $("camTorch").dataset.on = "0";
+    loadTesseract().catch(()=>{});          // warm up while the user aims
+  }
+  function closeCamera(){
+    if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+    $("video").srcObject = null; $("cam").style.display = "none";
+  }
+  async function toggleTorch(){
+    if(!stream) return;
+    const on = $("camTorch").dataset.on !== "1";
+    try{ await stream.getVideoTracks()[0].applyConstraints({advanced:[{torch:on}]}); $("camTorch").dataset.on = on?"1":"0"; }catch(e){}
+  }
+  function shoot(){
+    const v = $("video"), r = v.getBoundingClientRect();
+    const vw = v.videoWidth, vh = v.videoHeight;
+    if(!vw || !vh) return;
+    const s = Math.max(r.width/vw, r.height/vh);               // object-fit: cover
+    const ox = (vw*s - r.width)/2, oy = (vh*s - r.height)/2;
+    const gw = r.width*GUIDE_W, gh = r.height*GUIDE_H;
+    const gx = (r.width-gw)/2, gy = (r.height-gh)/2;
+    const sx = (gx+ox)/s, sy = (gy+oy)/s, sw = gw/s, sh = gh/s;
+    const c = document.createElement("canvas"); c.width = Math.round(sw); c.height = Math.round(sh);
+    c.getContext("2d").drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+    closeCamera();
+    process(c, "band", c);
+  }
+
+  // ---------- photo fallback ----------
+  function handlePhoto(file){
+    if(!file) return;
+    const url = URL.createObjectURL(file), im = new Image();
+    im.onload = ()=>{
+      const k = Math.min(1, 1800/Math.max(im.width, im.height));
+      const c = document.createElement("canvas"); c.width = Math.round(im.width*k); c.height = Math.round(im.height*k);
+      c.getContext("2d").drawImage(im,0,0,c.width,c.height);
+      URL.revokeObjectURL(url);
+      process(c, "full", c);
+    };
+    im.onerror = ()=>{ URL.revokeObjectURL(url); setMsg($("ocrMsg"),"Could not open that image.","err"); };
+    im.src = url;
+  }
+
+  // ---------- save ----------
+  function save(){
+    const v = valueFrom($("digits").value, decimals);
+    if(v==null){ setMsg($("saveMsg"),"Enter the meter digits first.","err"); return; }
+    const ts = new Date($("when").value || Date.now()).getTime();
+    if(isNaN(ts)){ setMsg($("saveMsg"),"Invalid date.","err"); return; }
+    const s = sorted();
+    const prev = s.filter(e=>e.ts<=ts).pop();
+    const next = s.find(e=>e.ts>ts);
+    if(prev && v < prev.value && !confirm("This is LOWER than the previous reading ("+fmt(prev.value,3)+"). Save anyway?")) return;
+    if(next && v > next.value && !confirm("This is HIGHER than a later reading ("+fmt(next.value,3)+"). Save anyway?")) return;
+    const en = {id: Date.now().toString(36)+Math.random().toString(36).slice(2,6), ts, value: v};
+    if(curThumb) en.thumb = curThumb;
+    entries.push(en);
+    if(!persist()){ entries.pop(); setMsg($("saveMsg"),"Storage full or blocked — could not save.","err"); return; }
+    $("digits").value = ""; curThumb = null; $("preview").style.display = "none"; $("preview").removeAttribute("src");
+    updateComputed(); setMsg($("ocrMsg"),""); setMsg($("saveMsg"),"Saved ✓","ok");
+    $("when").value = localInputValue(new Date());
+    render();
+  }
+
+  // ---------- compute / render ----------
+  function intervals(){
+    const s = sorted(), out = [];
+    for(let i=1;i<s.length;i++){
+      const days = (s[i].ts - s[i-1].ts)/86400000, used = s[i].value - s[i-1].value;
+      out.push({from:s[i-1], to:s[i], days, used, perDay: days>0 ? used/days : 0, id:s[i].id});
+    }
+    return out;
+  }
+  function render(){
+    const s = sorted(), iv = intervals(), last = iv[iv.length-1];
+    $("sLast").textContent = last ? fmt(last.used,3) : "–";
+    $("sDay").textContent = last ? fmt(last.perDay,2) : "–";
+    $("sTotal").textContent = s.length>1 ? fmt(s[s.length-1].value - s[0].value,1) : "–";
+    if(s.length>1){
+      const end = s[s.length-1].ts, start = end - 30*86400000;
+      let tot = 0, covered = 0;
+      for(const x of iv){
+        const a = Math.max(x.from.ts,start), b = x.to.ts, span = x.to.ts - x.from.ts;
+        if(b>a && span>0){ tot += x.used*(b-a)/span; covered += (b-a); }
+      }
+      $("s30").textContent = covered>0 ? fmt(tot,1) : "–";
+    } else $("s30").textContent = "–";
+
+    const ch = $("chart"), data = iv.slice(-14);
+    if(!data.length){ ch.innerHTML = '<div class="empty">Add at least two readings to see usage.</div>'; }
+    else{
+      const W=520,H=170,L=30,B=26,T=10,R=6;
+      const max = Math.max(...data.map(d=>d.perDay),0.01), bw = (W-L-R)/data.length;
+      let g = "";
+      for(let i=0;i<=3;i++){
+        const y = T + (H-T-B)*(1-i/3), val = max*i/3;
+        g += `<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${L-4}" y="${y+3}" text-anchor="end">${val.toFixed(1)}</text>`;
+      }
+      data.forEach((d,i)=>{
+        const h = (H-T-B)*(Math.max(d.perDay,0)/max), x = L+i*bw+bw*0.15, y = H-B-h, dt = new Date(d.to.ts);
+        g += `<rect x="${x}" y="${y}" width="${bw*0.7}" height="${Math.max(h,1)}" rx="3" fill="var(--bar)"/>`;
+        if(data.length<=10 || i%2===0) g += `<text x="${x+bw*0.35}" y="${H-B+12}" text-anchor="middle">${dt.getDate()}/${dt.getMonth()+1}</text>`;
+      });
+      ch.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Daily gas use per interval">${g}</svg>`;
+    }
+
+    const list = $("list");
+    if(!s.length){ list.innerHTML = '<div class="empty">No readings yet. Scan the meter to start.</div>'; return; }
+    const byId = {}; iv.forEach(x=>byId[x.id]=x);
+    list.innerHTML = "";
+    s.slice().reverse().forEach(e=>{
+      const x = byId[e.id];
+      const row = document.createElement("div"); row.className = "entry";
+      let pic;
+      if(e.thumb){ pic = document.createElement("img"); pic.src = e.thumb; pic.alt = ""; }
+      else { pic = document.createElement("div"); pic.className = "ph"; pic.textContent = "✎"; }
+      const m = document.createElement("div"); m.className = "m";
+      const b = document.createElement("b"); b.textContent = fmt(e.value,3)+" m³";
+      const sm = document.createElement("small"); sm.textContent = fmtDate(e.ts);
+      m.append(b,sm);
+      const d = document.createElement("div"); d.className = "d";
+      if(x){
+        const st = document.createElement("strong"); st.textContent = (x.used>=0?"+":"")+fmt(x.used,3);
+        if(x.used<0) st.style.color = "var(--warn)";
+        const br = document.createElement("div"); br.textContent = fmt(x.perDay,2)+" /day";
+        d.append(st,br);
+      }
+      const del = document.createElement("button"); del.className = "x"; del.textContent = "✕"; del.setAttribute("aria-label","Delete");
+      del.onclick = ()=>{ if(confirm("Delete reading "+fmt(e.value,3)+" m³?")){ entries = entries.filter(z=>z.id!==e.id); persist(); render(); } };
+      row.append(pic,m,d,del); list.append(row);
+    });
+  }
+
+  // ---------- CSV ----------
+  function exportCsv(){
+    const s = sorted();
+    if(!s.length){ setMsg($("exMsg"),"Nothing to export yet.","err"); return; }
+    const csv = "timestamp_iso,reading_m3\n" + s.map(e=>new Date(e.ts).toISOString()+","+e.value).join("\n") + "\n";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+    a.download = "gas-readings.csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+    setMsg($("exMsg"),"Exported ✓","ok");
+  }
+  function importCsv(file){
+    if(!file) return;
+    const r = new FileReader();
+    r.onload = ()=>{
+      let n = 0;
+      String(r.result).split(/\r?\n/).forEach(line=>{
+        const [t,v] = line.split(",");
+        const ts = Date.parse(t), val = parseFloat(v);
+        if(!isNaN(ts) && !isNaN(val) && !entries.some(e=>e.ts===ts)){
+          entries.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), ts, value:val}); n++;
+        }
+      });
+      persist(); render(); setMsg($("exMsg"),"Imported "+n+" reading(s).","ok");
+    };
+    r.readAsText(file);
+  }
+
+  // ---------- wire up ----------
+  $("btnScan").onclick = openCamera;
+  $("btnPhoto").onclick = ()=> $("photoIn").click();
+  $("photoIn").onchange = e=>{ handlePhoto(e.target.files[0]); e.target.value=""; };
+  $("camClose").onclick = closeCamera;
+  $("camTorch").onclick = toggleTorch;
+  $("shoot").onclick = shoot;
+  $("decMinus").onclick = ()=> setDecimals(decimals-1);
+  $("decPlus").onclick = ()=> setDecimals(decimals+1);
+  $("digits").addEventListener("input", updateComputed);
+  $("btnSave").onclick = save;
+  $("btnCsv").onclick = exportCsv;
+  $("btnImport").onclick = ()=> $("csvIn").click();
+  $("csvIn").onchange = e=>{ importCsv(e.target.files[0]); e.target.value=""; };
+  document.addEventListener("visibilitychange", ()=>{ if(document.hidden) closeCamera(); });
+
+  load();
+  $("when").value = localInputValue(new Date());
+  updateComputed();
+  render();
+})();
+</script>
+</body>
+</html>
