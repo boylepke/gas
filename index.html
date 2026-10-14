@@ -12,12 +12,12 @@
   padding-top:env(safe-area-inset-top,0px);
   padding-bottom:env(safe-area-inset-bottom,0px);
   --bg:#f5f6f8;--card:#fff;--text:#1b1f27;--muted:#6a7280;--line:#e3e6ec;
-  --accent:#e8590c;--accent-t:#fff;--ok:#2b8a3e;--warn:#c92a2a;--bar:#f59f55;
+  --accent:#e8590c;--accent-t:#fff;--ok:#2b8a3e;--warn:#c92a2a;--bar:#f59f55;--temp:#1c7ed6;
 }
 @media (prefers-color-scheme:dark){
   :root{
     --bg:#101318;--card:#1a1e26;--text:#eceff4;--muted:#98a1b0;--line:#2a303b;
-    --accent:#ff8a3d;--accent-t:#1b1000;--ok:#69db7c;--warn:#ff8787;--bar:#ff8a3d;
+    --accent:#ff8a3d;--accent-t:#1b1000;--ok:#69db7c;--warn:#ff8787;--bar:#ff8a3d;--temp:#74c0fc;
   }
 }
 *,*:before,*:after{box-sizing:inherit}
@@ -40,6 +40,10 @@ label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
 input[type=text],input[type=datetime-local]{
   font:inherit;width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
 #digits{font-size:26px;font-weight:700;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+#temp{font-size:18px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.legend i.ln{height:3px;border-radius:2px;vertical-align:3px;width:14px}
 #computed{font-size:22px;font-weight:700;margin-top:10px}
 .step{display:flex;gap:8px;align-items:center;margin-top:10px}
 .step span.l{flex:1;color:var(--muted);font-size:14px}
@@ -102,6 +106,9 @@ svg text{fill:var(--muted);font-size:10px}
 
     <label for="digits">Digits on the register</label>
     <input id="digits" type="text" inputmode="decimal" placeholder="e.g. 01234567" autocomplete="off">
+
+    <label for="temp">Outdoor temperature (°C)</label>
+    <input id="temp" type="text" placeholder="e.g. 7.5 or -3 (optional)" autocomplete="off" autocapitalize="off">
     <div class="step">
       <span class="l">Red decimal digits</span>
       <button class="sec" id="decMinus" aria-label="Fewer decimals">−</button>
@@ -122,6 +129,7 @@ svg text{fill:var(--muted);font-size:10px}
   <div class="card">
     <h2>Daily use per interval (m³/day)</h2>
     <div id="chart"></div>
+    <div class="legend" id="legend"></div>
   </div>
 
   <div class="card">
@@ -189,6 +197,14 @@ svg text{fill:var(--muted);font-size:10px}
     return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"T"+p(d.getHours())+":"+p(d.getMinutes());
   }
   function setMsg(el, text, cls){ el.textContent = text||""; el.className = "msg" + (cls?" "+cls:""); }
+
+  // outdoor temperature: "-3", "7,5", "−2.5" -> number; empty/invalid -> null
+  function parseTemp(str){
+    const s = String(str||"").trim().replace(",",".").replace(/[−–]/g,"-").replace(/\s*°?\s*c?$/i,"");
+    if(!/^-?\d+(\.\d+)?$/.test(s)) return null;
+    const t = parseFloat(s);
+    return (t>=-60 && t<=60) ? t : null;
+  }
 
   // "01234567" + 3 decimals -> 1234.567 ; "1234.567" stays as typed
   function valueFrom(str, dec){
@@ -373,16 +389,20 @@ svg text{fill:var(--muted);font-size:10px}
     if(v==null){ setMsg($("saveMsg"),"Enter the meter digits first.","err"); return; }
     const ts = new Date($("when").value || Date.now()).getTime();
     if(isNaN(ts)){ setMsg($("saveMsg"),"Invalid date.","err"); return; }
+    const tempRaw = $("temp").value.trim();
+    const temp = parseTemp(tempRaw);
+    if(tempRaw && temp==null){ setMsg($("saveMsg"),"Temperature must be a number between -60 and 60 °C.","err"); return; }
     const s = sorted();
     const prev = s.filter(e=>e.ts<=ts).pop();
     const next = s.find(e=>e.ts>ts);
     if(prev && v < prev.value && !confirm("This is LOWER than the previous reading ("+fmt(prev.value,3)+"). Save anyway?")) return;
     if(next && v > next.value && !confirm("This is HIGHER than a later reading ("+fmt(next.value,3)+"). Save anyway?")) return;
     const en = {id: Date.now().toString(36)+Math.random().toString(36).slice(2,6), ts, value: v};
+    if(temp!=null) en.temp = temp;
     if(curThumb) en.thumb = curThumb;
     entries.push(en);
     if(!persist()){ entries.pop(); setMsg($("saveMsg"),"Storage full or blocked — could not save.","err"); return; }
-    $("digits").value = ""; curThumb = null; $("preview").style.display = "none"; $("preview").removeAttribute("src");
+    $("digits").value = ""; $("temp").value = ""; curThumb = null; $("preview").style.display = "none"; $("preview").removeAttribute("src");
     updateComputed(); setMsg($("ocrMsg"),""); setMsg($("saveMsg"),"Saved ✓","ok");
     $("when").value = localInputValue(new Date());
     render();
@@ -413,21 +433,49 @@ svg text{fill:var(--muted);font-size:10px}
     } else $("s30").textContent = "–";
 
     const ch = $("chart"), data = iv.slice(-14);
-    if(!data.length){ ch.innerHTML = '<div class="empty">Add at least two readings to see usage.</div>'; }
+    if(!data.length){ ch.innerHTML = '<div class="empty">Add at least two readings to see usage.</div>'; $("legend").innerHTML = ""; }
     else{
-      const W=520,H=170,L=30,B=26,T=10,R=6;
-      const max = Math.max(...data.map(d=>d.perDay),0.01), bw = (W-L-R)/data.length;
+      const temps = data.map(d=> typeof d.to.temp==="number" ? d.to.temp : null);
+      const hasT = temps.some(t=>t!=null);
+      const W=520,H=180,L=30,B=26,T=10,R=hasT?36:6;
+      const max = Math.max(...data.map(d=>d.perDay),0.01), bw = (W-L-R)/data.length, ph = H-T-B;
+      let tMin=0, tMax=1;
+      if(hasT){
+        const tv = temps.filter(t=>t!=null);
+        tMin = Math.min(...tv); tMax = Math.max(...tv);
+        if(tMax-tMin<4){ const mid=(tMax+tMin)/2; tMin=mid-2; tMax=mid+2; }
+        const pad=(tMax-tMin)*0.1; tMin-=pad; tMax+=pad;
+      }
+      const ty = t => T + ph*(1-(t-tMin)/(tMax-tMin));
       let g = "";
       for(let i=0;i<=3;i++){
-        const y = T + (H-T-B)*(1-i/3), val = max*i/3;
+        const y = T + ph*(1-i/3), val = max*i/3;
         g += `<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${L-4}" y="${y+3}" text-anchor="end">${val.toFixed(1)}</text>`;
+        if(hasT) g += `<text x="${W-R+4}" y="${y+3}" fill="var(--temp)" style="fill:var(--temp)">${Math.round(tMin+(tMax-tMin)*i/3)}°</text>`;
       }
       data.forEach((d,i)=>{
-        const h = (H-T-B)*(Math.max(d.perDay,0)/max), x = L+i*bw+bw*0.15, y = H-B-h, dt = new Date(d.to.ts);
+        const h = ph*(Math.max(d.perDay,0)/max), x = L+i*bw+bw*0.15, y = H-B-h, dt = new Date(d.to.ts);
         g += `<rect x="${x}" y="${y}" width="${bw*0.7}" height="${Math.max(h,1)}" rx="3" fill="var(--bar)"/>`;
         if(data.length<=10 || i%2===0) g += `<text x="${x+bw*0.35}" y="${H-B+12}" text-anchor="middle">${dt.getDate()}/${dt.getMonth()+1}</text>`;
       });
-      ch.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Daily gas use per interval">${g}</svg>`;
+      if(hasT){
+        if(tMin<0 && tMax>0) g += `<line x1="${L}" x2="${W-R}" y1="${ty(0)}" y2="${ty(0)}" stroke="var(--temp)" stroke-dasharray="3 3" opacity=".5"/>`;
+        let seg = [];
+        const flush = () => { if(seg.length>1) g += `<polyline points="${seg.join(" ")}" fill="none" stroke="var(--temp)" stroke-width="2" stroke-linejoin="round"/>`; seg = []; };
+        temps.forEach((t,i)=>{
+          if(t==null){ flush(); return; }
+          seg.push((L+i*bw+bw*0.5).toFixed(1)+","+ty(t).toFixed(1));
+        });
+        flush();
+        temps.forEach((t,i)=>{
+          if(t==null) return;
+          const cx = L+i*bw+bw*0.5, cy = ty(t);
+          g += `<circle cx="${cx}" cy="${cy}" r="3.5" fill="var(--card)" stroke="var(--temp)" stroke-width="2"><title>${t} °C</title></circle>`;
+          if(data.length<=10) g += `<text x="${cx}" y="${cy-8}" text-anchor="middle" style="fill:var(--temp);font-weight:600">${t}°</text>`;
+        });
+      }
+      ch.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Daily gas use per interval with outdoor temperature">${g}</svg>`;
+      $("legend").innerHTML = '<span><i style="background:var(--bar)"></i>Gas use (m³/day, left)</span>' + (hasT ? '<span><i class="ln" style="background:var(--temp)"></i>Outdoor temp (°C, right)</span>' : '<span>Add outdoor temperatures to overlay them here.</span>');
     }
 
     const list = $("list");
@@ -442,7 +490,7 @@ svg text{fill:var(--muted);font-size:10px}
       else { pic = document.createElement("div"); pic.className = "ph"; pic.textContent = "✎"; }
       const m = document.createElement("div"); m.className = "m";
       const b = document.createElement("b"); b.textContent = fmt(e.value,3)+" m³";
-      const sm = document.createElement("small"); sm.textContent = fmtDate(e.ts);
+      const sm = document.createElement("small"); sm.textContent = fmtDate(e.ts) + (typeof e.temp==="number" ? " · "+e.temp+" °C" : "");
       m.append(b,sm);
       const d = document.createElement("div"); d.className = "d";
       if(x){
@@ -461,7 +509,7 @@ svg text{fill:var(--muted);font-size:10px}
   function exportCsv(){
     const s = sorted();
     if(!s.length){ setMsg($("exMsg"),"Nothing to export yet.","err"); return; }
-    const csv = "timestamp_iso,reading_m3\n" + s.map(e=>new Date(e.ts).toISOString()+","+e.value).join("\n") + "\n";
+    const csv = "timestamp_iso,reading_m3,outdoor_temp_c\n" + s.map(e=>new Date(e.ts).toISOString()+","+e.value+","+(typeof e.temp==="number"?e.temp:"")).join("\n") + "\n";
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
     a.download = "gas-readings.csv";
@@ -475,10 +523,12 @@ svg text{fill:var(--muted);font-size:10px}
     r.onload = ()=>{
       let n = 0;
       String(r.result).split(/\r?\n/).forEach(line=>{
-        const [t,v] = line.split(",");
-        const ts = Date.parse(t), val = parseFloat(v);
+        const [t,v,tp] = line.split(",");
+        const ts = Date.parse(t), val = parseFloat(v), tmp = parseTemp(tp);
         if(!isNaN(ts) && !isNaN(val) && !entries.some(e=>e.ts===ts)){
-          entries.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), ts, value:val}); n++;
+          const en = {id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), ts, value:val};
+          if(tmp!=null) en.temp = tmp;
+          entries.push(en); n++;
         }
       });
       persist(); render(); setMsg($("exMsg"),"Imported "+n+" reading(s).","ok");
