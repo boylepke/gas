@@ -12,12 +12,12 @@
   padding-top:env(safe-area-inset-top,0px);
   padding-bottom:env(safe-area-inset-bottom,0px);
   --bg:#f5f6f8;--card:#fff;--text:#1b1f27;--muted:#6a7280;--line:#e3e6ec;
-  --accent:#e8590c;--accent-t:#fff;--ok:#2b8a3e;--warn:#c92a2a;--bar:#f59f55;--temp:#1c7ed6;
+  --accent:#e8590c;--accent-t:#fff;--ok:#2b8a3e;--warn:#c92a2a;--bar:#f59f55;--temp:#1c7ed6;--amber:#d9730d;
 }
 @media (prefers-color-scheme:dark){
   :root{
     --bg:#101318;--card:#1a1e26;--text:#eceff4;--muted:#98a1b0;--line:#2a303b;
-    --accent:#ff8a3d;--accent-t:#1b1000;--ok:#69db7c;--warn:#ff8787;--bar:#ff8a3d;--temp:#74c0fc;
+    --accent:#ff8a3d;--accent-t:#1b1000;--ok:#69db7c;--warn:#ff8787;--bar:#ff8a3d;--temp:#74c0fc;--amber:#ffc078;
   }
 }
 *,*:before,*:after{box-sizing:inherit}
@@ -41,6 +41,18 @@ input[type=text],input[type=datetime-local]{
   font:inherit;width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
 #digits{font-size:26px;font-weight:700;letter-spacing:.04em;font-variant-numeric:tabular-nums}
 #temp{font-size:18px}
+#alPeriod{text-transform:none;letter-spacing:0;font-weight:400;margin-left:6px}
+.verdict{font-weight:600;margin-top:12px}
+.verdict.ok{color:var(--ok)}.verdict.tight{color:var(--amber)}.verdict.over{color:var(--warn)}
+#alNote,#alBudget{white-space:pre-line}
+#alBudget{margin-top:6px}
+.pbar{position:relative;height:10px;border-radius:6px;background:var(--bg);overflow:hidden;margin-top:12px;border:1px solid var(--line)}
+.pbar i{position:absolute;top:0;bottom:0;left:0;width:0}
+#pbUsed{background:var(--accent)}
+#pbProj{background:var(--bar);opacity:.45}
+#pbLim{width:2px!important;background:var(--text)}
+details{margin-top:12px}
+summary{cursor:pointer;color:var(--muted);font-size:14px}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:6px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 .legend i.ln{height:3px;border-radius:2px;vertical-align:3px;width:14px}
@@ -92,6 +104,26 @@ svg text{fill:var(--muted);font-size:10px}
       <div class="stat"><b id="s30">–</b><span>last 30 days (m³)</span></div>
       <div class="stat"><b id="sTotal">–</b><span>total tracked (m³)</span></div>
     </div>
+  </div>
+
+  <div class="card" id="allowCard">
+    <h2>Gas allowance<span id="alPeriod"></span></h2>
+    <div class="stats">
+      <div class="stat"><b id="alLeft">–</b><span id="alLeftS">m³ left of allowance</span></div>
+      <div class="stat"><b id="alProj">–</b><span>projected total by 1 Jul (m³)</span></div>
+    </div>
+    <div class="pbar hide" id="alBar" title="Used (solid), projected (light), allowance limit (line)"><i id="pbUsed"></i><i id="pbProj"></i><i id="pbLim"></i></div>
+    <div class="verdict" id="alVerdict"></div>
+    <div class="sm" id="alBudget"></div>
+    <div class="sm" id="alNote" style="margin-top:6px"></div>
+    <details>
+      <summary>Allowance settings</summary>
+      <label for="alTotal">Allowance (m³)</label>
+      <input id="alTotal" type="text" inputmode="decimal" autocomplete="off">
+      <label for="alStart" id="alStartLbl">Meter reading on 31 Aug (optional)</label>
+      <input id="alStart" type="text" inputmode="decimal" placeholder="e.g. 1234.567" autocomplete="off">
+      <div class="sm" style="margin-top:6px">Period: 31 Aug – 1 Jul. If you enter the meter reading from 31 Aug, use before your first reading here is counted too; otherwise counting starts at your first reading.</div>
+    </details>
   </div>
 
   <div class="card">
@@ -171,6 +203,7 @@ svg text{fill:var(--muted);font-size:10px}
   let decimals = 3;
   let curThumb = null;
   let stream = null;
+  let al = {total:1729, start:{}};            // allowance settings (start = meter value on 31 Aug, per period year)
 
   // ---------- storage ----------
   function load(){
@@ -408,6 +441,164 @@ svg text{fill:var(--muted);font-size:10px}
     render();
   }
 
+  // ---------- gas allowance ----------
+  const AL_KEY = "gasmeter:allowance:v1";
+  const DAY = 86400000;
+  const HDD_BASE = 15;     // heating assumed below this daily mean outdoor temperature (°C)
+  // approximate long-term monthly mean temperatures (°C), central Hungary, Jan..Dec
+  const NORMAL = [0.5,2.3,6.7,12.3,17.0,20.8,22.9,22.6,17.4,11.5,5.7,1.5];
+
+  function loadAl(){
+    try{
+      const o = JSON.parse(localStorage.getItem(AL_KEY) || "null");
+      if(o && typeof o==="object"){
+        if(o.total>0) al.total = o.total;
+        if(o.start && typeof o.start==="object") al.start = o.start;
+      }
+    }catch(e){}
+  }
+  function saveAl(){ try{ localStorage.setItem(AL_KEY, JSON.stringify(al)); }catch(e){} }
+  function num(str){
+    const s = String(str||"").trim().replace(",",".").replace(/\s+/g,"");
+    return /^\d+(\.\d+)?$/.test(s) ? parseFloat(s) : null;
+  }
+
+  // allowance period: 31 Aug .. 1 Jul (inclusive). Between 2 Jul and 30 Aug no period is running.
+  function period(now){
+    const y = now.getFullYear();
+    if(now >= new Date(y,7,31)) return {active:true, start:new Date(y,7,31), end:new Date(y+1,6,2)};
+    if(now < new Date(y,6,2))   return {active:true, start:new Date(y-1,7,31), end:new Date(y,6,2)};
+    return {active:false};
+  }
+  function normalT(d){                        // monthly means, interpolated between mid-months
+    const m = d.getMonth(), f = (d.getDate()-15)/30;
+    return f>=0 ? NORMAL[m] + (NORMAL[(m+1)%12]-NORMAL[m])*f
+                : NORMAL[m] + (NORMAL[(m+11)%12]-NORMAL[m])*(-f);
+  }
+  // expected use between two timestamps for use/day = a + b*max(0, HDD_BASE - T); dT shifts the normal temperatures
+  function projectRest(fromTs, toTs, a, b, dT){
+    let sum = 0;
+    for(let t=fromTs; t<toTs; t+=DAY){
+      const step = Math.min(DAY, toTs-t);
+      const T = normalT(new Date(t + step/2)) + dT;
+      sum += (a + b*Math.max(0, HDD_BASE - T)) * step/DAY;
+    }
+    return sum;
+  }
+  // weighted least squares: use/day = a + b*HDD, from [{days,u,T}] (needs real spread in temperature)
+  function fitWeather(list){
+    let sw=0, sh=0, su=0, shh=0, shu=0;
+    for(const x of list){
+      const w=x.days, h=Math.max(0,HDD_BASE-x.T);
+      sw+=w; sh+=w*h; su+=w*x.u; shh+=w*h*h; shu+=w*h*x.u;
+    }
+    const den = sw*shh - sh*sh;
+    if(den/(sw*sw) < 2.25) return null;       // weighted std of HDD below 1.5 °C: slope not trustworthy
+    let b = (sw*shu - sh*su)/den, a = (su - b*sh)/sw;
+    if(b<=0) return null;
+    if(a<0){ a=0; b=shu/shh; }
+    return {a,b};
+  }
+
+  function renderAllowance(){
+    const L=$("alLeft"), Pj=$("alProj"), V=$("alVerdict"), N=$("alNote"), B=$("alBudget"), bar=$("alBar");
+    const reset = msg => {
+      L.textContent = Pj.textContent = "–"; L.style.color = Pj.style.color = "";
+      V.textContent = ""; V.className = "verdict"; B.textContent = ""; N.textContent = msg||"";
+      bar.classList.add("hide");
+    };
+    const P = period(new Date());
+    if(!P.active){ $("alPeriod").textContent = ""; return reset("No allowance period is running right now. The next one starts on 31 Aug."); }
+
+    const y = P.start.getFullYear(), startTs = P.start.getTime(), endTs = P.end.getTime();
+    $("alPeriod").textContent = "31 Aug " + y + " – 1 Jul " + (y+1);
+    $("alStartLbl").textContent = "Meter reading on 31 Aug " + y + " (optional)";
+    if(document.activeElement !== $("alStart")) $("alStart").value = typeof al.start[y]==="number" ? al.start[y] : "";
+    if(document.activeElement !== $("alTotal")) $("alTotal").value = al.total;
+
+    const all = sorted();
+    const inP = all.filter(e => e.ts>=startTs && e.ts<endTs);
+    if(!inP.length) return reset("No reading in this period yet — add one to start tracking the allowance.");
+    const last = inP[inP.length-1];
+
+    // baseline = meter value at the start of the period
+    let base, kind;
+    const manual = al.start[y];
+    if(typeof manual==="number" && isFinite(manual)){ base = {ts:startTs, value:manual}; kind = "manual"; }
+    else{
+      const before = all.filter(e=>e.ts<startTs).pop();
+      if(before){
+        const f = (startTs-before.ts)/(inP[0].ts-before.ts);
+        base = {ts:startTs, value: before.value + (inP[0].value-before.value)*f}; kind = "interp";
+      } else { base = inP[0]; kind = "first"; }
+    }
+
+    const total = al.total, used = last.value - base.value, left = total - used;
+    const daysLeftNow = Math.max(0, (endTs - Date.now())/DAY);
+    const shortDate = ts => new Date(ts).toLocaleDateString(undefined,{day:"2-digit",month:"short"});
+
+    // field 1: remaining allowance
+    L.textContent = fmt(left,1);
+    L.style.color = left<0 ? "var(--warn)" : "";
+    $("alLeftS").textContent = "m³ left of " + fmt(total,0) + " · as of " + shortDate(last.ts);
+    if(left<=0) B.textContent = left<0 ? "Allowance exceeded by " + fmt(-left,1) + " m³." : "Allowance used up.";
+    else if(daysLeftNow>=1) B.textContent = "To stay within it: ≤ " + fmt(left/daysLeftNow,2) + " m³/day on average for the remaining " + Math.round(daysLeftNow) + " days.";
+    else B.textContent = "";
+
+    // field 2: projection to the end of the period
+    const elapsed = (last.ts - base.ts)/DAY, rest = Math.max(0,(endTs - last.ts)/DAY);
+    const fitList = intervals()
+      .filter(x => x.days>=0.5 && x.perDay>=0 && typeof x.from.temp==="number" && typeof x.to.temp==="number")
+      .map(x => ({days:x.days, u:x.perDay, T:(x.from.temp+x.to.temp)/2}));
+    const fit = fitList.length>=3 ? fitWeather(fitList) : null;
+    let proj=null, lo=null, hi=null, method="";
+    if(fit && used>=0){
+      proj = used + projectRest(last.ts,endTs,fit.a,fit.b,0);
+      lo   = used + projectRest(last.ts,endTs,fit.a,fit.b,+2);
+      hi   = used + projectRest(last.ts,endTs,fit.a,fit.b,-2);
+      method = "weather";
+    } else if(elapsed>=1 && used>0){
+      proj = used + (used/elapsed)*rest; method = "linear";
+    }
+
+    let note = "";
+    if(proj==null){
+      Pj.textContent = "–"; Pj.style.color = "";
+      V.className = "verdict"; V.textContent = "Not enough data for an estimate yet — I need readings at least a day apart.";
+      bar.classList.add("hide");
+    } else {
+      let state;
+      if(method==="weather") state = proj>total ? "over" : (hi>total ? "tight" : "ok");
+      else state = proj>total ? "over" : (proj>total*0.75 ? "tight" : "ok");
+      const icon = {ok:"✓", tight:"⚠", over:"✗"}[state];
+      Pj.textContent = icon + " " + fmt(proj,0);
+      Pj.style.color = {ok:"var(--ok)", tight:"var(--amber)", over:"var(--warn)"}[state];
+      V.className = "verdict " + state;
+      if(state==="ok")         V.textContent = "You should fit: about " + fmt(proj,0) + " m³ by 1 Jul, roughly " + fmt(total-proj,0) + " m³ under the allowance.";
+      else if(state==="tight") V.textContent = "Tight: about " + fmt(proj,0) + " m³ projected" + (method==="weather" ? " — a colder winter could push you over." : " — and heating use usually rises in winter.");
+      else                     V.textContent = "Likely to exceed: about " + fmt(proj,0) + " m³ projected, " + fmt(proj-total,0) + " m³ over the allowance.";
+
+      note = method==="weather"
+        ? "Weather-adjusted estimate fitted from " + fitList.length + " intervals with temperatures; the rest of the season uses approximate average monthly temperatures for Hungary. Range " + fmt(lo,0) + "–" + fmt(hi,0) + " m³ if it runs 2 °C warmer or colder."
+        : "Rough estimate: current average " + fmt(used/elapsed,2) + " m³/day × remaining days. Heating use normally rises in winter, so this probably underestimates. Enter outdoor temperatures with at least 4 readings for a weather-adjusted estimate.";
+
+      // progress bar: used (solid), projected rest (light), allowance limit (line)
+      const mx = Math.max(total, used, proj, hi||0, 1), pct = v => Math.max(0,Math.min(100,v/mx*100));
+      bar.classList.remove("hide");
+      $("pbUsed").style.width = pct(used)+"%";
+      $("pbProj").style.left = pct(used)+"%";
+      $("pbProj").style.width = (proj>used ? pct(proj)-pct(used) : 0)+"%";
+      $("pbLim").style.left = "calc(" + pct(total) + "% - 2px)";
+    }
+
+    if(used<0) note += "\nThe latest reading is below the 31 Aug value — check the settings.";
+    else if(kind==="first"){
+      if(inP[0].ts - startTs > 2*DAY) note += "\nCounted from your first reading on " + shortDate(inP[0].ts) + "; use before that is unknown. Enter your 31 Aug meter reading under settings for an exact figure.";
+    }
+    else if(kind==="interp") note += "\nStart-of-period value interpolated between your readings around 31 Aug.";
+    N.textContent = note.trim();
+  }
+
   // ---------- compute / render ----------
   function intervals(){
     const s = sorted(), out = [];
@@ -419,6 +610,7 @@ svg text{fill:var(--muted);font-size:10px}
   }
   function render(){
     const s = sorted(), iv = intervals(), last = iv[iv.length-1];
+    renderAllowance();
     $("sLast").textContent = last ? fmt(last.used,3) : "–";
     $("sDay").textContent = last ? fmt(last.perDay,2) : "–";
     $("sTotal").textContent = s.length>1 ? fmt(s[s.length-1].value - s[0].value,1) : "–";
@@ -550,9 +742,19 @@ svg text{fill:var(--muted);font-size:10px}
   $("btnCsv").onclick = exportCsv;
   $("btnImport").onclick = ()=> $("csvIn").click();
   $("csvIn").onchange = e=>{ importCsv(e.target.files[0]); e.target.value=""; };
-  document.addEventListener("visibilitychange", ()=>{ if(document.hidden) closeCamera(); });
+  document.addEventListener("visibilitychange", ()=>{ if(document.hidden) closeCamera(); else renderAllowance(); });
+  $("alTotal").addEventListener("input", ()=>{
+    const v = num($("alTotal").value);
+    if(v>0){ al.total = v; saveAl(); renderAllowance(); }
+  });
+  $("alStart").addEventListener("input", ()=>{
+    const raw = $("alStart").value.trim(), v = num(raw);
+    const y = (period(new Date()).start || new Date()).getFullYear();
+    if(!raw){ delete al.start[y]; saveAl(); renderAllowance(); }
+    else if(v!=null){ al.start[y] = v; saveAl(); renderAllowance(); }
+  });
 
-  load();
+  load(); loadAl();
   $("when").value = localInputValue(new Date());
   updateComputed();
   render();
