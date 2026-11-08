@@ -110,7 +110,7 @@ svg text{fill:var(--muted);font-size:10px}
     <h2>Gas allowance<span id="alPeriod"></span></h2>
     <div class="stats">
       <div class="stat"><b id="alLeft">–</b><span id="alLeftS">m³ left of allowance</span></div>
-      <div class="stat"><b id="alProj">–</b><span>projected total by 1 Jul (m³)</span></div>
+      <div class="stat"><b id="alProj">–</b><span>projected total by 31 Jul (m³)</span></div>
     </div>
     <div class="pbar hide" id="alBar" title="Used (solid), projected (light), allowance limit (line)"><i id="pbUsed"></i><i id="pbProj"></i><i id="pbLim"></i></div>
     <div class="verdict" id="alVerdict"></div>
@@ -120,9 +120,9 @@ svg text{fill:var(--muted);font-size:10px}
       <summary>Allowance settings</summary>
       <label for="alTotal">Allowance (m³)</label>
       <input id="alTotal" type="text" inputmode="decimal" autocomplete="off">
-      <label for="alStart" id="alStartLbl">Meter reading on 31 Aug (optional)</label>
+      <label for="alStart" id="alStartLbl">Meter reading on 1 Aug (optional)</label>
       <input id="alStart" type="text" inputmode="decimal" placeholder="e.g. 1234.567" autocomplete="off">
-      <div class="sm" style="margin-top:6px">Period: 31 Aug – 1 Jul. If you enter the meter reading from 31 Aug, use before your first reading here is counted too; otherwise counting starts at your first reading.</div>
+      <div class="sm" style="margin-top:6px">Period: 1 Aug – 31 Jul. If you enter the meter reading from 1 Aug, use before your first reading here is counted too; otherwise counting starts at your first reading.</div>
     </details>
   </div>
 
@@ -203,7 +203,7 @@ svg text{fill:var(--muted);font-size:10px}
   let decimals = 3;
   let curThumb = null;
   let stream = null;
-  let al = {total:1729, start:{}};            // allowance settings (start = meter value on 31 Aug, per period year)
+  let al = {total:1729, start:{}};            // allowance settings (start = meter value on 1 Aug, per period year)
 
   // ---------- storage ----------
   function load(){
@@ -463,12 +463,11 @@ svg text{fill:var(--muted);font-size:10px}
     return /^\d+(\.\d+)?$/.test(s) ? parseFloat(s) : null;
   }
 
-  // allowance period: 31 Aug .. 1 Jul (inclusive). Between 2 Jul and 30 Aug no period is running.
+  // allowance period: 1 Aug .. 31 Jul (inclusive); a new period starts every 1 Aug.
   function period(now){
     const y = now.getFullYear();
-    if(now >= new Date(y,7,31)) return {active:true, start:new Date(y,7,31), end:new Date(y+1,6,2)};
-    if(now < new Date(y,6,2))   return {active:true, start:new Date(y-1,7,31), end:new Date(y,6,2)};
-    return {active:false};
+    if(now >= new Date(y,7,1)) return {active:true, start:new Date(y,7,1),   end:new Date(y+1,7,1)};
+    return                            {active:true, start:new Date(y-1,7,1), end:new Date(y,7,1)};
   }
   function normalT(d){                        // monthly means, interpolated between mid-months
     const m = d.getMonth(), f = (d.getDate()-15)/30;
@@ -508,11 +507,11 @@ svg text{fill:var(--muted);font-size:10px}
       bar.classList.add("hide");
     };
     const P = period(new Date());
-    if(!P.active){ $("alPeriod").textContent = ""; return reset("No allowance period is running right now. The next one starts on 31 Aug."); }
+    if(!P.active){ $("alPeriod").textContent = ""; return reset("No allowance period is running right now."); }
 
     const y = P.start.getFullYear(), startTs = P.start.getTime(), endTs = P.end.getTime();
-    $("alPeriod").textContent = "31 Aug " + y + " – 1 Jul " + (y+1);
-    $("alStartLbl").textContent = "Meter reading on 31 Aug " + y + " (optional)";
+    $("alPeriod").textContent = "1 Aug " + y + " – 31 Jul " + (y+1);
+    $("alStartLbl").textContent = "Meter reading on 1 Aug " + y + " (optional)";
     if(document.activeElement !== $("alStart")) $("alStart").value = typeof al.start[y]==="number" ? al.start[y] : "";
     if(document.activeElement !== $("alTotal")) $("alTotal").value = al.total;
 
@@ -574,7 +573,7 @@ svg text{fill:var(--muted);font-size:10px}
       Pj.textContent = icon + " " + fmt(proj,0);
       Pj.style.color = {ok:"var(--ok)", tight:"var(--amber)", over:"var(--warn)"}[state];
       V.className = "verdict " + state;
-      if(state==="ok")         V.textContent = "You should fit: about " + fmt(proj,0) + " m³ by 1 Jul, roughly " + fmt(total-proj,0) + " m³ under the allowance.";
+      if(state==="ok")         V.textContent = "You should fit: about " + fmt(proj,0) + " m³ by 31 Jul, roughly " + fmt(total-proj,0) + " m³ under the allowance.";
       else if(state==="tight") V.textContent = "Tight: about " + fmt(proj,0) + " m³ projected" + (method==="weather" ? " — a colder winter could push you over." : " — and heating use usually rises in winter.");
       else                     V.textContent = "Likely to exceed: about " + fmt(proj,0) + " m³ projected, " + fmt(proj-total,0) + " m³ over the allowance.";
 
@@ -591,11 +590,11 @@ svg text{fill:var(--muted);font-size:10px}
       $("pbLim").style.left = "calc(" + pct(total) + "% - 2px)";
     }
 
-    if(used<0) note += "\nThe latest reading is below the 31 Aug value — check the settings.";
+    if(used<0) note += "\nThe latest reading is below the 1 Aug value — check the settings.";
     else if(kind==="first"){
-      if(inP[0].ts - startTs > 2*DAY) note += "\nCounted from your first reading on " + shortDate(inP[0].ts) + "; use before that is unknown. Enter your 31 Aug meter reading under settings for an exact figure.";
+      if(inP[0].ts - startTs > 2*DAY) note += "\nCounted from your first reading on " + shortDate(inP[0].ts) + "; use before that is unknown. Enter your 1 Aug meter reading under settings for an exact figure.";
     }
-    else if(kind==="interp") note += "\nStart-of-period value interpolated between your readings around 31 Aug.";
+    else if(kind==="interp") note += "\nStart-of-period value interpolated between your readings around 1 Aug.";
     N.textContent = note.trim();
   }
 
