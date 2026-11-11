@@ -174,7 +174,20 @@ svg text{fill:var(--muted);font-size:10px}
     </div>
     <input id="csvIn" type="file" accept=".csv,text/csv" class="hide">
     <div class="msg" id="exMsg"></div>
-    <div class="sm" style="margin-top:8px">Data is stored in this browser on this device only. Export a CSV now and then as a backup.</div>
+    <div style="height:6px"></div>
+    <button id="btnSync">☁ Sync to Google Drive</button>
+    <div class="msg" id="syncMsg"></div>
+    <details id="syncSettings">
+      <summary>Google Drive settings</summary>
+      <label for="gClient">Google OAuth client ID</label>
+      <input id="gClient" type="text" placeholder="1234567890-abc….apps.googleusercontent.com" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <label for="gFile">File name in Drive</label>
+      <input id="gFile" type="text" placeholder="gas-readings.csv" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <label for="gFolder">Drive folder (optional: paste the folder link or ID)</label>
+      <input id="gFolder" type="text" placeholder="https://drive.google.com/drive/folders/…" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="sm" style="margin-top:6px">Sync uploads the full CSV and overwrites the same file each time. The page can only see files it created itself (Drive “drive.file” access). The client ID must allow this page's web address as an authorized JavaScript origin.</div>
+    </details>
+    <div class="sm" style="margin-top:8px">Data is stored in this browser on this device only. Export a CSV or sync to Drive now and then as a backup.</div>
   </div>
 </main>
 
@@ -697,10 +710,13 @@ svg text{fill:var(--muted);font-size:10px}
   }
 
   // ---------- CSV ----------
+  function buildCsv(){
+    return "timestamp_iso,reading_m3,outdoor_temp_c\n" + sorted().map(e=>new Date(e.ts).toISOString()+","+e.value+","+(typeof e.temp==="number"?e.temp:"")).join("\n") + "\n";
+  }
   function exportCsv(){
     const s = sorted();
     if(!s.length){ setMsg($("exMsg"),"Nothing to export yet.","err"); return; }
-    const csv = "timestamp_iso,reading_m3,outdoor_temp_c\n" + s.map(e=>new Date(e.ts).toISOString()+","+e.value+","+(typeof e.temp==="number"?e.temp:"")).join("\n") + "\n";
+    const csv = buildCsv();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
     a.download = "gas-readings.csv";
@@ -727,6 +743,120 @@ svg text{fill:var(--muted);font-size:10px}
     r.readAsText(file);
   }
 
+  // ---------- Google Drive sync (Google Identity Services + Drive REST, no backend) ----------
+  const G_KEY = "gasmeter:gdrive:v1";
+  const G_SCOPE = "https://www.googleapis.com/auth/drive.file";
+  let gd = {client:"", file:"gas-readings.csv", folder:"", fileId:"", last:0};
+  let gToken = null, gExp = 0, gisP = null;
+
+  function loadGd(){
+    try{ const o = JSON.parse(localStorage.getItem(G_KEY) || "null"); if(o && typeof o==="object") Object.assign(gd, o); }catch(e){}
+  }
+  function saveGd(){ try{ localStorage.setItem(G_KEY, JSON.stringify(gd)); }catch(e){} }
+
+  function loadGis(){
+    if(window.google && google.accounts && google.accounts.oauth2) return Promise.resolve();
+    if(!gisP) gisP = new Promise((res,rej)=>{
+      const s = document.createElement("script");
+      s.src = "https://accounts.google.com/gsi/client"; s.async = true;
+      s.onload = res; s.onerror = ()=>{ gisP=null; rej(new Error("gis_load")); };
+      document.head.appendChild(s);
+    });
+    return gisP;
+  }
+  // access token is kept in memory only (valid ~1 h); a fresh token client per request keeps callbacks simple
+  function getToken(){
+    return new Promise((resolve,reject)=>{
+      if(gToken && Date.now() < gExp - 60000) return resolve(gToken);
+      const tc = google.accounts.oauth2.initTokenClient({
+        client_id: gd.client,
+        scope: G_SCOPE,
+        callback: r => {
+          if(r.error) return reject(new Error(r.error));
+          gToken = r.access_token; gExp = Date.now() + (Number(r.expires_in)||3600)*1000;
+          resolve(gToken);
+        },
+        error_callback: e => reject(new Error((e && e.type) || "popup_failed_to_open"))
+      });
+      tc.requestAccessToken({prompt:""});
+    });
+  }
+
+  async function driveCall(url, method, headers, body){
+    const r = await fetch(url, {method, headers:Object.assign({Authorization:"Bearer "+gToken}, headers), body});
+    if(!r.ok){ const e = new Error("drive_"+r.status); e.status = r.status; throw e; }
+    return r.json();
+  }
+  async function uploadCsv(csv){
+    const esc = s => s.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+    const fields = "id,webViewLink,trashed";
+    let id = gd.fileId;
+    if(!id){                                              // look for a file this page created earlier
+      let q = "name='" + esc(gd.file) + "' and trashed=false";
+      if(gd.folder) q += " and '" + esc(gd.folder) + "' in parents";
+      const p = new URLSearchParams({q, fields:"files(id)", pageSize:"1", orderBy:"modifiedTime desc"});
+      const l = await driveCall("https://www.googleapis.com/drive/v3/files?"+p, "GET");
+      if(l.files && l.files.length) id = l.files[0].id;
+    }
+    if(id){                                               // overwrite the existing file's content
+      try{
+        const r = await driveCall("https://www.googleapis.com/upload/drive/v3/files/"+encodeURIComponent(id)+"?uploadType=media&fields="+fields,
+          "PATCH", {"Content-Type":"text/csv; charset=UTF-8"}, csv);
+        if(!r.trashed) return r;
+      }catch(e){ if(e.status!==404) throw e; }
+    }
+    const meta = {name: gd.file, mimeType:"text/csv"};    // otherwise create it
+    if(gd.folder) meta.parents = [gd.folder];
+    const b = "gasmeter" + Math.random().toString(36).slice(2);
+    const body = "--"+b+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+JSON.stringify(meta)+
+                 "\r\n--"+b+"\r\nContent-Type: text/csv; charset=UTF-8\r\n\r\n"+csv+"\r\n--"+b+"--";
+    return driveCall("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields="+fields,
+      "POST", {"Content-Type":"multipart/related; boundary="+b}, body);
+  }
+
+  async function syncDrive(){
+    const msg = $("syncMsg"), btn = $("btnSync");
+    if(!sorted().length){ setMsg(msg,"Nothing to sync yet.","err"); return; }
+    if(!gd.client){
+      $("syncSettings").open = true; $("gClient").focus();
+      setMsg(msg,"Enter your Google OAuth client ID in the Drive settings first.","err"); return;
+    }
+    btn.disabled = true; setMsg(msg,"Connecting to Google…");
+    try{
+      await loadGis();
+      await getToken();
+      setMsg(msg,"Uploading…");
+      const n = sorted().length, r = await uploadCsv(buildCsv());
+      gd.fileId = r.id; gd.last = Date.now(); saveGd();
+      setMsg(msg,"Synced ✓ " + n + " readings, " + fmtDate(gd.last) + " ","ok");
+      if(r.webViewLink){
+        const a = document.createElement("a"); a.href = r.webViewLink; a.target = "_blank"; a.rel = "noopener"; a.textContent = "Open file";
+        msg.append(a);
+      }
+    }catch(e){
+      const m = String(e && e.message || "");
+      let t;
+      if(m==="gis_load") t = "Couldn't load Google sign-in — are you online?";
+      else if(/popup_closed|popup_failed|access_denied/.test(m)) t = "Sign-in was cancelled or the pop-up was blocked — tap Sync again.";
+      else if(e && e.status===401){ gToken = null; t = "Google session expired — tap Sync again."; }
+      else if(e && e.status===403) t = "Drive refused the upload (403). Check that the Google Drive API is enabled for your Cloud project and that your account is allowed to use the app.";
+      else if(e && e.status===404) t = "Drive folder not found or not accessible — check the folder in the settings.";
+      else t = "Sync failed (" + (m || "unknown error") + ").";
+      setMsg(msg, t, "err");
+    }finally{ btn.disabled = false; }
+  }
+  function wireDriveSettings(){
+    $("gClient").value = gd.client; $("gFile").value = gd.file; $("gFolder").value = gd.folder;
+    $("gClient").addEventListener("input", ()=>{ gd.client = $("gClient").value.trim(); gd.fileId = ""; gToken = null; saveGd(); if(gd.client) loadGis().catch(()=>{}); });
+    $("gFile").addEventListener("input", ()=>{ gd.file = $("gFile").value.trim() || "gas-readings.csv"; gd.fileId = ""; saveGd(); });
+    $("gFolder").addEventListener("input", ()=>{
+      const raw = $("gFolder").value.trim(), m = raw.match(/folders\/([\w-]+)/);
+      gd.folder = m ? m[1] : raw.replace(/[^\w-]/g,""); gd.fileId = ""; saveGd();
+    });
+    if(gd.last) setMsg($("syncMsg"), "Last synced " + fmtDate(gd.last));
+    if(gd.client) loadGis().catch(()=>{});     // preload so the sign-in pop-up can open straight from the tap
+  }
+
   // ---------- wire up ----------
   $("btnScan").onclick = openCamera;
   $("btnPhoto").onclick = ()=> $("photoIn").click();
@@ -739,6 +869,7 @@ svg text{fill:var(--muted);font-size:10px}
   $("digits").addEventListener("input", updateComputed);
   $("btnSave").onclick = save;
   $("btnCsv").onclick = exportCsv;
+  $("btnSync").onclick = syncDrive;
   $("btnImport").onclick = ()=> $("csvIn").click();
   $("csvIn").onchange = e=>{ importCsv(e.target.files[0]); e.target.value=""; };
   document.addEventListener("visibilitychange", ()=>{ if(document.hidden) closeCamera(); else renderAllowance(); });
@@ -753,7 +884,7 @@ svg text{fill:var(--muted);font-size:10px}
     else if(v!=null){ al.start[y] = v; saveAl(); renderAllowance(); }
   });
 
-  load(); loadAl();
+  load(); loadAl(); loadGd(); wireDriveSettings();
   $("when").value = localInputValue(new Date());
   updateComputed();
   render();
