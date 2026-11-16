@@ -35,12 +35,24 @@ button{font:inherit;border:0;border-radius:12px;padding:13px 16px;background:var
 button.sec{background:var(--bg);color:var(--text);border:1px solid var(--line)}
 button:disabled{opacity:.5}
 .row{display:flex;gap:8px;align-items:center}
-.row>*{flex:1}
+.row>*{flex:1;min-width:0}
 label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
 input[type=text],input[type=datetime-local]{
   font:inherit;width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
 #digits{font-size:26px;font-weight:700;letter-spacing:.04em;font-variant-numeric:tabular-nums}
 #temp{font-size:18px}
+.inrow{display:flex;gap:8px;align-items:center}
+.inrow input{flex:1;min-width:0;width:auto}
+.inrow button{flex:none;width:auto;padding:11px 14px}
+.chk{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text);margin:12px 0 0}
+.chk input{width:18px;height:18px;flex:none}
+.msg.warn{color:var(--amber)}
+.entry{cursor:pointer}
+.dlg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:60;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--card);width:100%;max-width:560px;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));max-height:92vh;overflow:auto;border:1px solid var(--line)}
+.sheet h3{margin:0 0 4px;font-size:18px}
+#eThumb{display:block;max-width:100%;max-height:90px;border-radius:8px;margin:6px 0}
+#cumNote{margin-top:6px}
 .hrow{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
 .hrow h2{margin:0}
 .tog{width:auto;padding:6px 12px;font-size:14px;font-weight:500}
@@ -129,6 +141,13 @@ svg text{fill:var(--muted);font-size:10px}
     </details>
   </div>
 
+  <div class="card" id="cumCard">
+    <h2>Use vs allowance<span id="cumPeriod" style="text-transform:none;letter-spacing:0;font-weight:400;margin-left:6px"></span></h2>
+    <div id="cumChart"></div>
+    <div class="legend" id="cumLegend"></div>
+    <div class="sm" id="cumNote"></div>
+  </div>
+
   <div class="card">
     <h2>New reading</h2>
     <img id="preview" alt="Meter digits">
@@ -143,7 +162,26 @@ svg text{fill:var(--muted);font-size:10px}
     <input id="digits" type="text" inputmode="decimal" placeholder="e.g. 01234567" autocomplete="off">
 
     <label for="temp">Outdoor temperature (°C)</label>
-    <input id="temp" type="text" placeholder="e.g. 7.5 or -3 (optional)" autocomplete="off" autocapitalize="off">
+    <div class="inrow">
+      <input id="temp" type="text" placeholder="e.g. 7.5 or -3 (optional)" autocomplete="off" autocapitalize="off">
+      <button id="btnTempAuto" class="sec" type="button" title="Fill from weather data">Auto</button>
+    </div>
+    <div class="msg" id="wxNote" style="margin-top:4px"></div>
+    <details id="wxSettings">
+      <summary>Weather settings</summary>
+      <label class="chk"><input type="checkbox" id="wxAuto"> Fill the temperature automatically</label>
+      <div class="row">
+        <div><label for="wLat">Latitude</label><input id="wLat" type="text" inputmode="decimal" autocomplete="off"></div>
+        <div><label for="wLon">Longitude</label><input id="wLon" type="text" inputmode="decimal" autocomplete="off"></div>
+      </div>
+      <div style="height:10px"></div>
+      <div class="row">
+        <button id="btnLoc" class="sec" type="button">Use my location</button>
+        <button id="btnFillTemps" class="sec" type="button">Fill missing temperatures</button>
+      </div>
+      <div class="msg" id="wxMsg"></div>
+      <div class="sm">Weather data comes from Open-Meteo (free, no account). Your location, rounded to about 1 km, is sent to open-meteo.com to look up temperatures. The allowance estimate also uses this weather data, so it works even when you don't enter temperatures.</div>
+    </details>
     <div class="step">
       <span class="l">Red decimal digits</span>
       <button class="sec" id="decMinus" aria-label="Fewer decimals">−</button>
@@ -169,6 +207,7 @@ svg text{fill:var(--muted);font-size:10px}
 
   <div class="card">
     <div class="hrow"><h2>History</h2><button id="btnHist" class="sec tog">Hide readings</button></div>
+    <div class="sm" id="histHint" style="margin:-4px 0 4px">Tap a reading to edit it.</div>
     <div id="list"></div>
     <div style="height:10px"></div>
     <div class="row">
@@ -178,7 +217,7 @@ svg text{fill:var(--muted);font-size:10px}
     <input id="csvIn" type="file" accept=".csv,text/csv" class="hide">
     <div class="msg" id="exMsg"></div>
     <div style="height:6px"></div>
-    <button id="btnSync">☁ Sync to Google Drive</button>
+    <div class="row"><button id="btnSync" style="flex:2">☁ Sync to Google Drive</button><button id="btnRestore" class="sec">⬇ Restore</button></div>
     <div class="msg" id="syncMsg"></div>
     <details id="syncSettings">
       <summary>Google Drive settings</summary>
@@ -188,11 +227,32 @@ svg text{fill:var(--muted);font-size:10px}
       <input id="gFile" type="text" placeholder="gas-readings.csv" autocomplete="off" autocapitalize="off" spellcheck="false">
       <label for="gFolder">Drive folder (optional: paste the folder link or ID)</label>
       <input id="gFolder" type="text" placeholder="https://drive.google.com/drive/folders/…" autocomplete="off" autocapitalize="off" spellcheck="false">
-      <div class="sm" style="margin-top:6px">Sync uploads the full CSV and overwrites the same file each time. The page can only see files it created itself (Drive “drive.file” access). The client ID must allow this page's web address as an authorized JavaScript origin.</div>
+      <label class="chk"><input type="checkbox" id="gAuto"> Sync automatically after each change</label>
+      <div class="sm" style="margin-top:4px">Automatic sync only runs while you are signed in to Google (about an hour after your last Sync tap). Otherwise the page shows “Unsynced changes” and the next tap on Sync uploads them.</div>
+      <div class="sm" style="margin-top:6px">Sync uploads the full CSV and overwrites the same file each time; Restore adds any readings from that file that this device doesn't have yet (nothing is deleted). The page can only see files it created itself (Drive “drive.file” access). The client ID must allow this page's web address as an authorized JavaScript origin.</div>
     </details>
     <div class="sm" style="margin-top:8px">Data is stored in this browser on this device only. Export a CSV or sync to Drive now and then as a backup.</div>
   </div>
 </main>
+
+<div id="editDlg" class="dlg hide" role="dialog" aria-modal="true" aria-label="Edit reading">
+  <div class="sheet">
+    <h3>Edit reading</h3>
+    <img id="eThumb" class="hide" alt="Meter photo">
+    <label for="eVal">Meter reading (m³)</label>
+    <input id="eVal" type="text" inputmode="decimal" autocomplete="off">
+    <label for="eWhen">Date &amp; time</label>
+    <input id="eWhen" type="datetime-local">
+    <label for="eTemp">Outdoor temperature (°C)</label>
+    <div class="inrow">
+      <input id="eTemp" type="text" autocomplete="off" autocapitalize="off" placeholder="optional">
+      <button id="eAuto" class="sec" type="button">Auto</button>
+    </div>
+    <div class="msg" id="eMsg"></div>
+    <div class="row" style="margin-top:12px"><button id="eCancel" class="sec" type="button">Cancel</button><button id="eSave" type="button">Save</button></div>
+    <button id="eDelete" class="sec" type="button" style="margin-top:8px;color:var(--warn)">Delete reading</button>
+  </div>
+</div>
 
 <div id="cam" role="dialog" aria-label="Camera">
   <video id="video" playsinline muted autoplay></video>
@@ -220,6 +280,9 @@ svg text{fill:var(--muted);font-size:10px}
   let curThumb = null;
   let stream = null;
   let al = {total:1729, start:{}};            // allowance settings (start = meter value on 1 Aug, per period year)
+  let wx = {lat:47.50, lon:19.04, auto:true, at:0, from:"", days:{}};   // weather: daily mean °C by local date (cached); default = Budapest, change under Weather settings
+  let wxHour = {};                            // hourly °C, memory only
+  let tempTouched = false;                    // true while the temperature box holds a value the user typed
 
   // ---------- storage ----------
   function load(){
@@ -355,6 +418,7 @@ svg text{fill:var(--muted);font-size:10px}
     tc.getContext("2d").drawImage(thumbSrc,0,0,tw,th);
     curThumb = tc.toDataURL("image/jpeg",0.5);
     $("when").value = localInputValue(new Date());
+    autofillTemp(false);
     $("btnScan").disabled = $("btnPhoto").disabled = true;
     setMsg($("ocrMsg"),"Preparing reader…");
     try{
@@ -451,10 +515,160 @@ svg text{fill:var(--muted);font-size:10px}
     if(curThumb) en.thumb = curThumb;
     entries.push(en);
     if(!persist()){ entries.pop(); setMsg($("saveMsg"),"Storage full or blocked — could not save.","err"); return; }
-    $("digits").value = ""; $("temp").value = ""; curThumb = null; $("preview").style.display = "none"; $("preview").removeAttribute("src");
+    $("digits").value = ""; $("temp").value = ""; tempTouched = false; curThumb = null; $("preview").style.display = "none"; $("preview").removeAttribute("src");
     updateComputed(); setMsg($("ocrMsg"),""); setMsg($("saveMsg"),"Saved ✓","ok");
     $("when").value = localInputValue(new Date());
-    render();
+    markDirty(); render(); autofillTemp(false);
+  }
+
+  // ---------- weather (Open-Meteo: free, no account) ----------
+  const WX_KEY = "gasmeter:wx:v1";
+  const dkey = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  const day0 = (d, off) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + (off||0));
+  let wxBusy = null, autoSeq = 0;
+
+  function loadWx(){
+    try{
+      const o = JSON.parse(localStorage.getItem(WX_KEY) || "null");
+      if(o && typeof o==="object"){
+        if(isFinite(o.lat) && isFinite(o.lon)){ wx.lat = o.lat; wx.lon = o.lon; }
+        if(typeof o.auto==="boolean") wx.auto = o.auto;
+        if(o.days && typeof o.days==="object"){ wx.days = o.days; wx.at = o.at||0; wx.from = o.from||""; }
+      }
+    }catch(e){}
+  }
+  function saveWx(){
+    const keep = dkey(day0(new Date(), -450)), days = {};
+    Object.keys(wx.days).forEach(k=>{ if(k>=keep) days[k] = wx.days[k]; });
+    wx.days = days;
+    try{ localStorage.setItem(WX_KEY, JSON.stringify(wx)); }catch(e){}
+  }
+
+  // hourly temperatures for [from, to] (local dates): archive API for old dates, forecast API for the last ~80 days and the next 15
+  async function omFetch(archive, from, to){
+    const p = new URLSearchParams({latitude:String(wx.lat), longitude:String(wx.lon), start_date:dkey(from), end_date:dkey(to), hourly:"temperature_2m", timezone:"auto"});
+    const url = (archive ? "https://archive-api.open-meteo.com/v1/archive?" : "https://api.open-meteo.com/v1/forecast?") + p;
+    const ctl = new AbortController(), timer = setTimeout(()=>ctl.abort(), 15000);
+    try{
+      const r = await fetch(url, {signal: ctl.signal});
+      if(!r.ok) throw new Error("wx_" + r.status);
+      const j = await r.json();
+      return (j && j.hourly) || null;
+    } finally { clearTimeout(timer); }
+  }
+  async function fetchHourly(from, to){
+    const today = day0(new Date()), recent = day0(today,-80), lastDay = day0(today,15);
+    if(to > lastDay) to = lastDay;
+    if(from > to) return;
+    const jobs = [];
+    if(from < recent){ const e = day0(recent,-1); jobs.push(omFetch(true, from, e < to ? e : to)); }
+    if(to >= recent) jobs.push(omFetch(false, from > recent ? from : recent, to));
+    const res = await Promise.all(jobs);
+    const sum = {}, cnt = {};
+    for(const h of res){
+      if(!h || !h.time || !h.temperature_2m) continue;
+      h.time.forEach((t,i)=>{
+        const v = h.temperature_2m[i];
+        if(typeof v!=="number") return;
+        wxHour[t.slice(0,13)] = v;                           // "YYYY-MM-DDTHH"
+        const k = t.slice(0,10); sum[k] = (sum[k]||0) + v; cnt[k] = (cnt[k]||0) + 1;
+      });
+    }
+    Object.keys(sum).forEach(k=>{ if(cnt[k]>=20) wx.days[k] = Math.round(sum[k]/cnt[k]*10)/10; });   // daily mean, °C
+  }
+  function wxRangeStart(){
+    let from = period(new Date()).start;
+    const s = sorted();
+    if(s.length){ const f = day0(new Date(s[0].ts), -1); if(f < from) from = f; }
+    return from;
+  }
+  // refresh at most every 3 h unless forced; re-renders when new data arrived
+  function refreshWeather(force){
+    if(wxBusy) return wxBusy;
+    const from = wxRangeStart();
+    const stale = Date.now() - wx.at > 3*3600*1000 || !wx.from || dkey(from) < wx.from || !Object.keys(wxHour).length;
+    if(!force && !stale) return Promise.resolve(false);
+    wxBusy = (async()=>{
+      try{
+        await fetchHourly(from, day0(new Date(), 15));
+        wx.at = Date.now(); wx.from = dkey(from); saveWx();
+        render();
+        return true;
+      }catch(e){ return false; }
+      finally{ wxBusy = null; }
+    })();
+    return wxBusy;
+  }
+  function tempAt(ts){                                       // nearest hour, falling back to that day's mean
+    const d = new Date(ts + 1800000);
+    const h = wxHour[dkey(d) + "T" + String(d.getHours()).padStart(2,"0")];
+    if(typeof h==="number") return Math.round(h*10)/10;
+    const m = wx.days[dkey(new Date(ts))];
+    return typeof m==="number" ? m : null;
+  }
+  async function tempAtAsync(ts){
+    const t = tempAt(ts);
+    if(t!=null) return t;
+    try{ const d = day0(new Date(ts)); await fetchHourly(d, d); saveWx(); }catch(e){ return null; }
+    return tempAt(ts);
+  }
+  // fill the "Outdoor temperature" box; force=true (Auto button) overwrites what is typed
+  async function autofillTemp(force){
+    if(!force && (!wx.auto || tempTouched)) return;
+    const ts = new Date($("when").value).getTime();
+    if(isNaN(ts)) return;
+    const seq = ++autoSeq;
+    setMsg($("wxNote"), "Looking up the temperature…");
+    const t = await tempAtAsync(ts);
+    if(seq !== autoSeq) return;                              // a newer lookup took over
+    if(t==null){ setMsg($("wxNote"), "Couldn't get the temperature (offline?) — type it in.", "err"); return; }
+    if(!force && tempTouched) return;                        // the user typed meanwhile
+    $("temp").value = String(t); tempTouched = false;
+    setMsg($("wxNote"), "Filled automatically from Open-Meteo for " + fmtDate(ts) + ".");
+  }
+  async function fillMissingTemps(){
+    const msg = $("wxMsg"), btn = $("btnFillTemps");
+    const missing = entries.filter(e=>typeof e.temp!=="number");
+    if(!missing.length){ setMsg(msg, "Every reading already has a temperature.", "ok"); return; }
+    btn.disabled = true; setMsg(msg, "Fetching weather data…");
+    try{
+      await refreshWeather(true);
+      let n = 0;
+      for(const e of missing){
+        const t = await tempAtAsync(e.ts);
+        if(t!=null){ e.temp = t; e.tempAuto = true; n++; }
+      }
+      if(n){ persist(); markDirty(); render(); }
+      setMsg(msg, n ? "Filled " + n + " of " + missing.length + " readings." : "No weather data found for those dates.", n ? "ok" : "err");
+    }catch(e){ setMsg(msg, "Weather service not reachable — try again later.", "err"); }
+    finally{ btn.disabled = false; }
+  }
+  function wireWeather(){
+    $("wxAuto").checked = wx.auto;
+    $("wLat").value = wx.lat; $("wLon").value = wx.lon;
+    $("wxAuto").addEventListener("change", ()=>{ wx.auto = $("wxAuto").checked; saveWx(); if(wx.auto) autofillTemp(false); });
+    const setLoc = ()=>{
+      const la = parseFloat($("wLat").value.replace(",", ".")), lo = parseFloat($("wLon").value.replace(",", "."));
+      if(!(isFinite(la) && isFinite(lo) && Math.abs(la)<=90 && Math.abs(lo)<=180)){ setMsg($("wxMsg"), "Enter the latitude and longitude as numbers.", "err"); return; }
+      wx.lat = Math.round(la*100)/100; wx.lon = Math.round(lo*100)/100;      // ~1 km precision is plenty
+      $("wLat").value = wx.lat; $("wLon").value = wx.lon;
+      wx.days = {}; wxHour = {}; wx.at = 0; wx.from = ""; saveWx();
+      setMsg($("wxMsg"), "Location saved.", "ok");
+      refreshWeather(true).then(()=>autofillTemp(false));
+    };
+    $("wLat").addEventListener("change", setLoc); $("wLon").addEventListener("change", setLoc);
+    $("btnLoc").onclick = ()=>{
+      if(!navigator.geolocation){ setMsg($("wxMsg"), "Location isn't available in this browser.", "err"); return; }
+      setMsg($("wxMsg"), "Getting your location…");
+      navigator.geolocation.getCurrentPosition(
+        p => { $("wLat").value = p.coords.latitude.toFixed(2); $("wLon").value = p.coords.longitude.toFixed(2); setLoc(); },
+        () => setMsg($("wxMsg"), "Couldn't get your location — enter the coordinates by hand.", "err"),
+        {timeout:10000});
+    };
+    $("btnTempAuto").onclick = ()=>{ tempTouched = false; autofillTemp(true); };
+    $("btnFillTemps").onclick = fillMissingTemps;
+    $("temp").addEventListener("input", ()=>{ tempTouched = $("temp").value.trim() !== ""; });
+    $("when").addEventListener("change", ()=>autofillTemp(false));
   }
 
   // ---------- gas allowance ----------
@@ -491,15 +705,33 @@ svg text{fill:var(--muted);font-size:10px}
     return f>=0 ? NORMAL[m] + (NORMAL[(m+1)%12]-NORMAL[m])*f
                 : NORMAL[m] + (NORMAL[(m+11)%12]-NORMAL[m])*(-f);
   }
-  // expected use between two timestamps for use/day = a + b*max(0, HDD_BASE - T); dT shifts the normal temperatures
-  function projectRest(fromTs, toTs, a, b, dT){
+  // expected use/day = a + b*max(0, HDD_BASE - T). T is the real/forecast daily mean where known, else the monthly average shifted by dT
+  function dayUse(ts, a, b, dT){
+    const d = new Date(ts), k = dkey(d);
+    const T = typeof wx.days[k]==="number" ? wx.days[k] : normalT(d) + dT;
+    return a + b*Math.max(0, HDD_BASE - T);
+  }
+  function projectPath(fromTs, toTs, a, b, dT){     // cumulative expected use, one point per day
+    const pts = [{ts:fromTs, v:0}];
     let sum = 0;
     for(let t=fromTs; t<toTs; t+=DAY){
       const step = Math.min(DAY, toTs-t);
-      const T = normalT(new Date(t + step/2)) + dT;
-      sum += (a + b*Math.max(0, HDD_BASE - T)) * step/DAY;
+      sum += dayUse(t + step/2, a, b, dT) * step/DAY;
+      pts.push({ts:t+step, v:sum});
     }
-    return sum;
+    return pts;
+  }
+  // mean outdoor temperature over an interval: real daily means from the weather service, else the two typed temperatures
+  function intervalTemp(x){
+    let sum = 0, n = 0, tot = 0;
+    for(let t=x.from.ts; t<x.to.ts; t+=DAY){
+      tot++;
+      const v = wx.days[dkey(new Date(Math.min(t + DAY/2, x.to.ts - 1)))];
+      if(typeof v==="number"){ sum += v; n++; }
+    }
+    if(tot>0 && n >= Math.ceil(tot*0.8)) return sum/n;
+    if(typeof x.from.temp==="number" && typeof x.to.temp==="number") return (x.from.temp + x.to.temp)/2;
+    return null;
   }
   // weighted least squares: use/day = a + b*HDD, from [{days,u,T}] (needs real spread in temperature)
   function fitWeather(list){
@@ -516,18 +748,88 @@ svg text{fill:var(--muted);font-size:10px}
     return {a,b};
   }
 
+  // ---------- cumulative chart: use since 1 Aug vs the allowance ----------
+  function niceStep(raw){
+    const p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw/p;
+    return (f<=1 ? 1 : f<=2 ? 2 : f<=2.5 ? 2.5 : f<=5 ? 5 : 10) * p;
+  }
+  function drawCum(d){
+    const box = $("cumChart"), lg = $("cumLegend"), note = $("cumNote");
+    if(!d){ box.innerHTML = '<div class="empty">Add a reading in this period to see the curve.</div>'; lg.innerHTML = ""; note.textContent = ""; return; }
+    const W=520, H=230, L=38, R=12, T=14, B=24, iw=W-L-R, ih=H-T-B;
+    const span = d.endTs - d.startTs;
+    const x = ts => L + Math.max(0, Math.min(1, (ts-d.startTs)/span)) * iw;
+    const top = Math.max(d.total, d.used, d.proj||0, d.hi||0, 1) * 1.06;
+    const step = niceStep(top/4), ymax = Math.ceil(top/step - 1e-9) * step;
+    const y = v => T + ih * (1 - v/ymax);
+    const P = p => x(p.ts).toFixed(1) + "," + y(p.v).toFixed(1);
+    let g = "";
+    for(let v=0; v<=ymax+1e-6; v+=step){
+      g += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L-4}" y="${y(v)+3}" text-anchor="end">${fmt(v,0)}</text>`;
+    }
+    for(let i=0; i<12; i++){
+      const m = new Date(d.start.getFullYear(), d.start.getMonth()+i, 1), xm = x(m.getTime());
+      g += `<line x1="${xm}" x2="${xm}" y1="${T+ih}" y2="${T+ih+3}" stroke="var(--muted)"/><text x="${xm+iw/24}" y="${H-8}" text-anchor="middle">${m.toLocaleDateString(undefined,{month:"short"})}</text>`;
+    }
+    // range band (warmer / colder than average for the part of the season beyond the forecast)
+    if(d.pathLo && d.pathHi){
+      g += `<polygon points="${d.pathHi.map(P).concat(d.pathLo.slice().reverse().map(P)).join(" ")}" fill="var(--bar)" opacity=".22"/>`;
+    }
+    // allowance limit
+    g += `<line x1="${L}" x2="${W-R}" y1="${y(d.total)}" y2="${y(d.total)}" stroke="var(--warn)" stroke-width="1.5" stroke-dasharray="5 4"/>` +
+         `<text x="${L+4}" y="${y(d.total)-4}" style="fill:var(--warn);font-weight:600">Allowance ${fmt(d.total,0)} m³</text>`;
+    // today
+    if(d.nowTs>=d.startTs && d.nowTs<=d.endTs){
+      const xn = x(d.nowTs);
+      g += `<line x1="${xn}" x2="${xn}" y1="${T}" y2="${T+ih}" stroke="var(--muted)" stroke-dasharray="2 3"/><text x="${xn+3}" y="${T+ih-4}">today</text>`;
+    }
+    // projected path
+    if(d.path) g += `<polyline points="${d.path.map(P).join(" ")}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 4"/>`;
+    // actual use
+    if(d.pts.length>1) g += `<polyline points="${d.pts.map(P).join(" ")}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>`;
+    if(d.pts.length<=40) d.pts.forEach(p=>{ g += `<circle cx="${x(p.ts).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="2.8" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/>`; });
+    // where the projection reaches the limit
+    let cross = null;
+    if(d.path){
+      for(let i=1; i<d.path.length; i++){
+        const a = d.path[i-1], b = d.path[i];
+        if(a.v < d.total && b.v >= d.total){ cross = a.ts + (d.total-a.v)/(b.v-a.v)*(b.ts-a.ts); break; }
+      }
+    }
+    if(cross!=null){
+      const xc = x(cross), lbl = new Date(cross).toLocaleDateString(undefined,{day:"numeric",month:"short"});
+      g += `<circle cx="${xc}" cy="${y(d.total)}" r="4.5" fill="var(--warn)"/><text x="${xc}" y="${y(d.total)+15}" text-anchor="${xc>W-60?"end":"middle"}" style="fill:var(--warn);font-weight:600">${lbl}</text>`;
+    }
+    // projected end value
+    if(d.proj!=null){
+      const col = d.state==="over" ? "var(--warn)" : d.state==="tight" ? "var(--amber)" : "var(--ok)";
+      g += `<circle cx="${x(d.endTs)}" cy="${y(d.proj)}" r="4" fill="${col}"/><text x="${x(d.endTs)-6}" y="${y(d.proj)-7}" text-anchor="end" style="fill:${col};font-weight:600">≈ ${fmt(d.proj,0)}</text>`;
+    }
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Cumulative gas use since 1 August compared with the allowance">${g}</svg>`;
+    lg.innerHTML =
+      '<span><i class="ln" style="background:var(--accent)"></i>Used so far (m³)</span>' +
+      (d.path ? '<span><i class="ln" style="background:repeating-linear-gradient(90deg,var(--accent) 0 4px,transparent 4px 7px)"></i>Projected</span>' : '') +
+      (d.pathLo ? '<span><i style="background:var(--bar);opacity:.35"></i>Warmer/colder range</span>' : '') +
+      '<span><i class="ln" style="background:repeating-linear-gradient(90deg,var(--warn) 0 4px,transparent 4px 7px)"></i>Allowance</span>';
+    note.textContent = cross!=null
+      ? "At the projected pace the allowance runs out around " + new Date(cross).toLocaleDateString(undefined,{day:"numeric",month:"long",year:"numeric"}) + "."
+      : "";
+  }
+
   function renderAllowance(){
     const L=$("alLeft"), Pj=$("alProj"), V=$("alVerdict"), N=$("alNote"), B=$("alBudget"), bar=$("alBar");
     const reset = msg => {
       L.textContent = Pj.textContent = "–"; L.style.color = Pj.style.color = "";
       V.textContent = ""; V.className = "verdict"; B.textContent = ""; N.textContent = msg||"";
       bar.classList.add("hide");
+      drawCum(null);
     };
     const P = period(new Date());
     if(!P.active){ $("alPeriod").textContent = ""; return reset("No allowance period is running right now."); }
 
     const y = P.start.getFullYear(), startTs = P.start.getTime(), endTs = P.end.getTime();
     $("alPeriod").textContent = "1 Aug " + y + " – 31 Jul " + (y+1);
+    $("cumPeriod").textContent = "1 Aug " + y + " – 31 Jul " + (y+1);
     $("alStartLbl").textContent = "Meter reading on 1 Aug " + y + " (optional)";
     if(document.activeElement !== $("alStart")) $("alStart").value = typeof al.start[y]==="number" ? al.start[y] : "";
     if(document.activeElement !== $("alTotal")) $("alTotal").value = al.total;
@@ -564,17 +866,21 @@ svg text{fill:var(--muted);font-size:10px}
     // field 2: projection to the end of the period
     const elapsed = (last.ts - base.ts)/DAY, rest = Math.max(0,(endTs - last.ts)/DAY);
     const fitList = intervals()
-      .filter(x => x.days>=0.5 && x.perDay>=0 && typeof x.from.temp==="number" && typeof x.to.temp==="number")
-      .map(x => ({days:x.days, u:x.perDay, T:(x.from.temp+x.to.temp)/2}));
+      .filter(x => x.days>=0.5 && x.perDay>=0)
+      .map(x => ({days:x.days, u:x.perDay, T:intervalTemp(x)}))
+      .filter(x => x.T!=null);
     const fit = fitList.length>=3 ? fitWeather(fitList) : null;
-    let proj=null, lo=null, hi=null, method="";
+    let proj=null, lo=null, hi=null, method="", state=null, path=null, pathLo=null, pathHi=null;
     if(fit && used>=0){
-      proj = used + projectRest(last.ts,endTs,fit.a,fit.b,0);
-      lo   = used + projectRest(last.ts,endTs,fit.a,fit.b,+2);
-      hi   = used + projectRest(last.ts,endTs,fit.a,fit.b,-2);
+      const add = pp => pp.map(p => ({ts:p.ts, v:used + p.v}));
+      path   = add(projectPath(last.ts,endTs,fit.a,fit.b,0));
+      pathLo = add(projectPath(last.ts,endTs,fit.a,fit.b,+2));
+      pathHi = add(projectPath(last.ts,endTs,fit.a,fit.b,-2));
+      proj = path[path.length-1].v; lo = pathLo[pathLo.length-1].v; hi = pathHi[pathHi.length-1].v;
       method = "weather";
     } else if(elapsed>=1 && used>0){
       proj = used + (used/elapsed)*rest; method = "linear";
+      path = [{ts:last.ts, v:used}, {ts:endTs, v:proj}];
     }
 
     let note = "";
@@ -583,7 +889,6 @@ svg text{fill:var(--muted);font-size:10px}
       V.className = "verdict"; V.textContent = "Not enough data for an estimate yet — I need readings at least a day apart.";
       bar.classList.add("hide");
     } else {
-      let state;
       if(method==="weather") state = proj>total ? "over" : (hi>total ? "tight" : "ok");
       else state = proj>total ? "over" : (proj>total*0.75 ? "tight" : "ok");
       const icon = {ok:"✓", tight:"⚠", over:"✗"}[state];
@@ -594,9 +899,10 @@ svg text{fill:var(--muted);font-size:10px}
       else if(state==="tight") V.textContent = "Tight: about " + fmt(proj,0) + " m³ projected" + (method==="weather" ? " — a colder winter could push you over." : " — and heating use usually rises in winter.");
       else                     V.textContent = "Likely to exceed: about " + fmt(proj,0) + " m³ projected, " + fmt(proj-total,0) + " m³ over the allowance.";
 
+      const haveWx = Object.keys(wx.days).length>0;
       note = method==="weather"
-        ? "Weather-adjusted estimate fitted from " + fitList.length + " intervals with temperatures; the rest of the season uses approximate average monthly temperatures for Hungary. Range " + fmt(lo,0) + "–" + fmt(hi,0) + " m³ if it runs 2 °C warmer or colder."
-        : "Rough estimate: current average " + fmt(used/elapsed,2) + " m³/day × remaining days. Heating use normally rises in winter, so this probably underestimates. Enter outdoor temperatures with at least 4 readings for a weather-adjusted estimate.";
+        ? "Weather-adjusted estimate fitted from " + fitList.length + " intervals using " + (haveWx ? "local weather data from Open-Meteo" : "the temperatures you entered") + "; days up to now use the real weather, the next ~2 weeks the forecast, and later days approximate average monthly temperatures for Hungary. Range " + fmt(lo,0) + "–" + fmt(hi,0) + " m³ if the later weather runs 2 °C warmer or colder."
+        : "Rough estimate: current average " + fmt(used/elapsed,2) + " m³/day × remaining days. Heating use normally rises in winter, so this probably underestimates. The weather-adjusted estimate needs at least 4 readings; make sure the weather lookup works (Weather settings).";
 
       // progress bar: used (solid), projected rest (light), allowance limit (line)
       const mx = Math.max(total, used, proj, hi||0, 1), pct = v => Math.max(0,Math.min(100,v/mx*100));
@@ -613,6 +919,11 @@ svg text{fill:var(--muted);font-size:10px}
     }
     else if(kind==="interp") note += "\nStart-of-period value interpolated between your readings around 1 Aug.";
     N.textContent = note.trim();
+
+    // cumulative chart
+    const pts = kind==="first" ? [] : [{ts:startTs, v:0}];
+    inP.forEach(e => pts.push({ts:e.ts, v:e.value - base.value}));
+    drawCum({start:P.start, startTs, endTs, total, used, proj, lo, hi, state, pts, path, pathLo, pathHi, nowTs:Date.now()});
   }
 
   // ---------- compute / render ----------
@@ -709,7 +1020,10 @@ svg text{fill:var(--muted);font-size:10px}
         d.append(st,br);
       }
       const del = document.createElement("button"); del.className = "x"; del.textContent = "✕"; del.setAttribute("aria-label","Delete");
-      del.onclick = ()=>{ if(confirm("Delete reading "+fmt(e.value,3)+" m³?")){ entries = entries.filter(z=>z.id!==e.id); persist(); render(); } };
+      del.onclick = ev=>{ ev.stopPropagation(); if(confirm("Delete reading "+fmt(e.value,3)+" m³?")){ entries = entries.filter(z=>z.id!==e.id); persist(); markDirty(); render(); } };
+      row.tabIndex = 0; row.setAttribute("role","button"); row.setAttribute("aria-label","Edit reading " + fmt(e.value,3) + " m³");
+      row.onclick = ()=> openEdit(e.id);
+      row.onkeydown = ev=>{ if(ev.key==="Enter" || ev.key===" "){ ev.preventDefault(); openEdit(e.id); } };
       row.append(pic,m,d,del); list.append(row);
     });
   }
@@ -720,6 +1034,7 @@ svg text{fill:var(--muted);font-size:10px}
   try{ showHist = localStorage.getItem(HIST_KEY) !== "0"; }catch(e){}
   function applyHist(n){
     $("list").classList.toggle("hide", !showHist);
+    $("histHint").classList.toggle("hide", !showHist);
     $("btnHist").textContent = showHist ? "Hide readings" : "Show readings (" + n + ")";
   }
 
@@ -738,21 +1053,38 @@ svg text{fill:var(--muted);font-size:10px}
     setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
     setMsg($("exMsg"),"Exported ✓","ok");
   }
+  function parseCsvText(text){
+    const out = [];
+    String(text).split(/\r?\n/).forEach(line=>{
+      const [t,v,tp] = line.split(",");
+      const ts = Date.parse(t), val = parseFloat(v);
+      if(isNaN(ts) || isNaN(val)) return;                    // also skips the header line
+      const o = {ts, value:val}, tmp = parseTemp(tp);
+      if(tmp!=null) o.temp = tmp;
+      out.push(o);
+    });
+    return out;
+  }
+  // adds readings that are not here yet (same timestamp = same reading) and fills missing temperatures
+  function mergeEntries(list){
+    let added = 0, filled = 0;
+    for(const o of list){
+      const ex = entries.find(e=>e.ts===o.ts);
+      if(!ex){
+        const en = {id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), ts:o.ts, value:o.value};
+        if(typeof o.temp==="number") en.temp = o.temp;
+        entries.push(en); added++;
+      } else if(typeof ex.temp!=="number" && typeof o.temp==="number"){ ex.temp = o.temp; filled++; }
+    }
+    return {added, filled};
+  }
   function importCsv(file){
     if(!file) return;
     const r = new FileReader();
     r.onload = ()=>{
-      let n = 0;
-      String(r.result).split(/\r?\n/).forEach(line=>{
-        const [t,v,tp] = line.split(",");
-        const ts = Date.parse(t), val = parseFloat(v), tmp = parseTemp(tp);
-        if(!isNaN(ts) && !isNaN(val) && !entries.some(e=>e.ts===ts)){
-          const en = {id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), ts, value:val};
-          if(tmp!=null) en.temp = tmp;
-          entries.push(en); n++;
-        }
-      });
-      persist(); render(); setMsg($("exMsg"),"Imported "+n+" reading(s).","ok");
+      const {added, filled} = mergeEntries(parseCsvText(r.result));
+      persist(); if(added || filled) markDirty(); render();
+      setMsg($("exMsg"), "Imported " + added + " reading(s)" + (filled ? ", filled " + filled + " temperature(s)" : "") + ".", "ok");
     };
     r.readAsText(file);
   }
@@ -760,13 +1092,15 @@ svg text{fill:var(--muted);font-size:10px}
   // ---------- Google Drive sync (Google Identity Services + Drive REST, no backend) ----------
   const G_KEY = "gasmeter:gdrive:v1";
   const G_SCOPE = "https://www.googleapis.com/auth/drive.file";
-  let gd = {client:"", file:"gas-readings.csv", folder:"", fileId:"", last:0};
-  let gToken = null, gExp = 0, gisP = null;
+  const DRIVE = "https://www.googleapis.com/drive/v3/files";
+  let gd = {client:"", file:"gas-readings.csv", folder:"", fileId:"", last:0, auto:true, dirty:false};
+  let gToken = null, gExp = 0, gisP = null, syncing = false, autoTimer = null, changeSeq = 0;
 
   function loadGd(){
     try{ const o = JSON.parse(localStorage.getItem(G_KEY) || "null"); if(o && typeof o==="object") Object.assign(gd, o); }catch(e){}
   }
   function saveGd(){ try{ localStorage.setItem(G_KEY, JSON.stringify(gd)); }catch(e){} }
+  const tokenValid = () => !!(gToken && Date.now() < gExp - 60000);
 
   function loadGis(){
     if(window.google && google.accounts && google.accounts.oauth2) return Promise.resolve();
@@ -781,7 +1115,7 @@ svg text{fill:var(--muted);font-size:10px}
   // access token is kept in memory only (valid ~1 h); a fresh token client per request keeps callbacks simple
   function getToken(){
     return new Promise((resolve,reject)=>{
-      if(gToken && Date.now() < gExp - 60000) return resolve(gToken);
+      if(tokenValid()) return resolve(gToken);
       const tc = google.accounts.oauth2.initTokenClient({
         client_id: gd.client,
         scope: G_SCOPE,
@@ -796,22 +1130,26 @@ svg text{fill:var(--muted);font-size:10px}
     });
   }
 
-  async function driveCall(url, method, headers, body){
+  async function driveFetch(url, method, headers, body){
     const r = await fetch(url, {method, headers:Object.assign({Authorization:"Bearer "+gToken}, headers), body});
     if(!r.ok){ const e = new Error("drive_"+r.status); e.status = r.status; throw e; }
-    return r.json();
+    return r;
+  }
+  const driveCall = async (url, method, headers, body) => (await driveFetch(url, method, headers, body)).json();
+  const driveText = async url => (await driveFetch(url, "GET")).text();
+
+  async function findFileId(){                            // the file this page created earlier (stored id, else search by name)
+    if(gd.fileId) return gd.fileId;
+    const esc = s => s.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+    let q = "name='" + esc(gd.file) + "' and trashed=false";
+    if(gd.folder) q += " and '" + esc(gd.folder) + "' in parents";
+    const p = new URLSearchParams({q, fields:"files(id)", pageSize:"1", orderBy:"modifiedTime desc"});
+    const l = await driveCall(DRIVE + "?" + p, "GET");
+    return (l.files && l.files.length) ? l.files[0].id : "";
   }
   async function uploadCsv(csv){
-    const esc = s => s.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
     const fields = "id,webViewLink,trashed";
-    let id = gd.fileId;
-    if(!id){                                              // look for a file this page created earlier
-      let q = "name='" + esc(gd.file) + "' and trashed=false";
-      if(gd.folder) q += " and '" + esc(gd.folder) + "' in parents";
-      const p = new URLSearchParams({q, fields:"files(id)", pageSize:"1", orderBy:"modifiedTime desc"});
-      const l = await driveCall("https://www.googleapis.com/drive/v3/files?"+p, "GET");
-      if(l.files && l.files.length) id = l.files[0].id;
-    }
+    const id = await findFileId();
     if(id){                                               // overwrite the existing file's content
       try{
         const r = await driveCall("https://www.googleapis.com/upload/drive/v3/files/"+encodeURIComponent(id)+"?uploadType=media&fields="+fields,
@@ -828,47 +1166,175 @@ svg text{fill:var(--muted);font-size:10px}
       "POST", {"Content-Type":"multipart/related; boundary="+b}, body);
   }
 
-  async function syncDrive(){
-    const msg = $("syncMsg"), btn = $("btnSync");
-    if(!sorted().length){ setMsg(msg,"Nothing to sync yet.","err"); return; }
-    if(!gd.client){
-      $("syncSettings").open = true; $("gClient").focus();
-      setMsg(msg,"Enter your Google OAuth client ID in the Drive settings first.","err"); return;
-    }
-    btn.disabled = true; setMsg(msg,"Connecting to Google…");
+  function syncIdle(){                                    // resting status line under the Sync button
+    if(syncing) return;
+    const m = $("syncMsg");
+    if(gd.client && gd.dirty) setMsg(m, "● Unsynced changes" + (gd.last ? " since " + fmtDate(gd.last) : "") + " — tap Sync.", "warn");
+    else if(gd.last) setMsg(m, "Last synced " + fmtDate(gd.last));
+    else setMsg(m, "");
+  }
+  // call after any change to the readings; auto-syncs when signed in, otherwise flags the change
+  function markDirty(){
+    changeSeq++;
+    if(!gd.client) return;
+    gd.dirty = true; saveGd();
+    clearTimeout(autoTimer);
+    if(gd.auto && tokenValid()) autoTimer = setTimeout(()=>syncDrive({auto:true}), 1500);
+    syncIdle();
+  }
+  function driveError(e){
+    const m = String(e && e.message || "");
+    if(m==="gis_load") return "Couldn't load Google sign-in — are you online?";
+    if(/popup_closed|popup_failed|access_denied/.test(m)) return "Sign-in was cancelled or the pop-up was blocked — tap Sync again.";
+    if(e && e.status===401){ gToken = null; return "Google session expired — tap Sync again."; }
+    if(e && e.status===403) return "Drive refused the request (403). Check that the Google Drive API is enabled for your Cloud project and that your account is allowed to use the app.";
+    if(e && e.status===404) return "Drive folder not found or not accessible — check the folder in the settings.";
+    if(m==="needs_confirm") return "Drive already has readings that aren't on this device — tap Sync to review them.";
+    return "Sync failed (" + (m || "unknown error") + ").";
+  }
+  function setBusy(on){ syncing = on; $("btnSync").disabled = $("btnRestore").disabled = on; }
+  function needClient(){
+    if(gd.client) return false;
+    $("syncSettings").open = true; $("gClient").focus();
+    setMsg($("syncMsg"), "Enter your Google OAuth client ID in the Drive settings first.", "err");
+    return true;
+  }
+
+  async function syncDrive(opts){
+    const auto = !!(opts && opts.auto), msg = $("syncMsg");
+    if(syncing) return;
+    if(!sorted().length){ if(!auto) setMsg(msg,"Nothing to sync yet.","err"); return; }
+    if(auto ? !gd.client : needClient()) return;
+    setBusy(true);
+    if(!auto) setMsg(msg,"Connecting to Google…"); else setMsg(msg,"Syncing…");
     try{
       await loadGis();
-      await getToken();
-      setMsg(msg,"Uploading…");
-      const n = sorted().length, r = await uploadCsv(buildCsv());
-      gd.fileId = r.id; gd.last = Date.now(); saveGd();
-      setMsg(msg,"Synced ✓ " + n + " readings, " + fmtDate(gd.last) + " ","ok");
+      await getToken();                                   // auto mode only runs while a token is valid, so no pop-up
+      if(!gd.last){                                       // first sync from this device: never overwrite Drive data blindly
+        const id = await findFileId();
+        if(id){
+          const remote = parseCsvText(await driveText(DRIVE + "/" + encodeURIComponent(id) + "?alt=media"));
+          const missing = remote.filter(o => !entries.some(e=>e.ts===o.ts));
+          if(missing.length){
+            if(auto) throw new Error("needs_confirm");
+            if(!confirm("Google Drive already has " + missing.length + " reading(s) that this device doesn't have.\n\nOK = add them here first, then upload the combined list.\nCancel = stop without changing anything.")){
+              setMsg(msg,"Sync cancelled — nothing was changed."); return;
+            }
+            mergeEntries(missing); persist(); render();
+          }
+        }
+      }
+      if(!auto) setMsg(msg,"Uploading…");
+      const seq = changeSeq, n = sorted().length, r = await uploadCsv(buildCsv());
+      gd.fileId = r.id; gd.last = Date.now(); gd.dirty = (changeSeq !== seq); saveGd();
+      setMsg(msg, (auto ? "Auto-synced ✓ " : "Synced ✓ ") + n + " readings, " + fmtDate(gd.last) + " ", "ok");
       if(r.webViewLink){
         const a = document.createElement("a"); a.href = r.webViewLink; a.target = "_blank"; a.rel = "noopener"; a.textContent = "Open file";
         msg.append(a);
       }
     }catch(e){
-      const m = String(e && e.message || "");
-      let t;
-      if(m==="gis_load") t = "Couldn't load Google sign-in — are you online?";
-      else if(/popup_closed|popup_failed|access_denied/.test(m)) t = "Sign-in was cancelled or the pop-up was blocked — tap Sync again.";
-      else if(e && e.status===401){ gToken = null; t = "Google session expired — tap Sync again."; }
-      else if(e && e.status===403) t = "Drive refused the upload (403). Check that the Google Drive API is enabled for your Cloud project and that your account is allowed to use the app.";
-      else if(e && e.status===404) t = "Drive folder not found or not accessible — check the folder in the settings.";
-      else t = "Sync failed (" + (m || "unknown error") + ").";
-      setMsg(msg, t, "err");
-    }finally{ btn.disabled = false; }
+      if(auto){ gd.dirty = true; saveGd(); }
+      setMsg(msg, (auto ? "Auto-sync failed. " : "") + driveError(e), "err");
+    }finally{ setBusy(false); }
+  }
+
+  // pull the Drive file and add whatever this device is missing (nothing is deleted or overwritten)
+  async function restoreDrive(){
+    const msg = $("syncMsg");
+    if(syncing || needClient()) return;
+    setBusy(true); setMsg(msg,"Connecting to Google…");
+    try{
+      await loadGis();
+      await getToken();
+      setMsg(msg,"Downloading…");
+      const id = await findFileId();
+      if(!id){ setMsg(msg,"No file named “" + gd.file + "” found in Drive yet — sync from a device that has your readings first.","err"); return; }
+      gd.fileId = id;
+      const remote = parseCsvText(await driveText(DRIVE + "/" + encodeURIComponent(id) + "?alt=media"));
+      const {added, filled} = mergeEntries(remote);
+      if(added || filled){ persist(); render(); }
+      const remoteTs = new Set(remote.map(o=>o.ts));
+      const extra = entries.some(e=>!remoteTs.has(e.ts));  // readings only this device has
+      gd.dirty = extra; if(!extra) gd.last = Date.now(); saveGd();
+      setMsg(msg, (added || filled)
+        ? "Restored ✓ " + added + " new reading(s)" + (filled ? ", " + filled + " temperature(s) filled" : "") + " from Drive."
+        : "Already up to date — Drive has nothing new for this device.", "ok");
+    }catch(e){ setMsg(msg, driveError(e), "err"); }
+    finally{ setBusy(false); }
   }
   function wireDriveSettings(){
-    $("gClient").value = gd.client; $("gFile").value = gd.file; $("gFolder").value = gd.folder;
+    $("gClient").value = gd.client; $("gFile").value = gd.file; $("gFolder").value = gd.folder; $("gAuto").checked = gd.auto;
     $("gClient").addEventListener("input", ()=>{ gd.client = $("gClient").value.trim(); gd.fileId = ""; gToken = null; saveGd(); if(gd.client) loadGis().catch(()=>{}); });
     $("gFile").addEventListener("input", ()=>{ gd.file = $("gFile").value.trim() || "gas-readings.csv"; gd.fileId = ""; saveGd(); });
     $("gFolder").addEventListener("input", ()=>{
       const raw = $("gFolder").value.trim(), m = raw.match(/folders\/([\w-]+)/);
       gd.folder = m ? m[1] : raw.replace(/[^\w-]/g,""); gd.fileId = ""; saveGd();
     });
-    if(gd.last) setMsg($("syncMsg"), "Last synced " + fmtDate(gd.last));
+    $("gAuto").addEventListener("change", ()=>{ gd.auto = $("gAuto").checked; saveGd(); });
+    syncIdle();
     if(gd.client) loadGis().catch(()=>{});     // preload so the sign-in pop-up can open straight from the tap
+  }
+
+  // ---------- edit a reading ----------
+  let editId = null;
+  function openEdit(id){
+    const e = entries.find(z=>z.id===id);
+    if(!e) return;
+    editId = id;
+    $("eVal").value = String(e.value);
+    $("eWhen").value = localInputValue(new Date(e.ts));
+    $("eTemp").value = typeof e.temp==="number" ? String(e.temp) : "";
+    $("eThumb").classList.toggle("hide", !e.thumb);
+    if(e.thumb) $("eThumb").src = e.thumb;
+    setMsg($("eMsg"), "");
+    $("editDlg").classList.remove("hide");
+    $("eVal").focus();
+  }
+  function closeEdit(){ editId = null; $("editDlg").classList.add("hide"); }
+  function saveEdit(){
+    const e = entries.find(z=>z.id===editId);
+    if(!e){ closeEdit(); return; }
+    const v = num($("eVal").value);
+    if(v==null){ setMsg($("eMsg"),"Enter the reading as a number, e.g. 1234.567","err"); return; }
+    const ts = new Date($("eWhen").value).getTime();
+    if(isNaN(ts)){ setMsg($("eMsg"),"Invalid date.","err"); return; }
+    const tRaw = $("eTemp").value.trim(), temp = parseTemp(tRaw);
+    if(tRaw && temp==null){ setMsg($("eMsg"),"Temperature must be a number between -60 and 60 °C.","err"); return; }
+    const others = sorted().filter(z=>z.id!==e.id);
+    const prev = others.filter(z=>z.ts<=ts).pop(), next = others.find(z=>z.ts>ts);
+    if(prev && v < prev.value && !confirm("This is LOWER than the previous reading ("+fmt(prev.value,3)+"). Save anyway?")) return;
+    if(next && v > next.value && !confirm("This is HIGHER than a later reading ("+fmt(next.value,3)+"). Save anyway?")) return;
+    const old = {value:e.value, ts:e.ts, temp:e.temp, tempAuto:e.tempAuto};
+    e.value = v; e.ts = ts;
+    if(temp!=null){ if(temp!==old.temp) delete e.tempAuto; e.temp = temp; } else { delete e.temp; delete e.tempAuto; }
+    if(!persist()){
+      e.value = old.value; e.ts = old.ts;
+      if(old.temp===undefined) delete e.temp; else e.temp = old.temp;
+      if(old.tempAuto===undefined) delete e.tempAuto; else e.tempAuto = old.tempAuto;
+      setMsg($("eMsg"),"Storage full or blocked — could not save.","err"); return;
+    }
+    closeEdit(); markDirty(); render();
+  }
+  function deleteEdit(){
+    const e = entries.find(z=>z.id===editId);
+    if(!e){ closeEdit(); return; }
+    if(!confirm("Delete reading "+fmt(e.value,3)+" m³?")) return;
+    entries = entries.filter(z=>z.id!==e.id); persist(); closeEdit(); markDirty(); render();
+  }
+  function wireEdit(){
+    $("eSave").onclick = saveEdit;
+    $("eCancel").onclick = closeEdit;
+    $("eDelete").onclick = deleteEdit;
+    $("eAuto").onclick = async ()=>{
+      const ts = new Date($("eWhen").value).getTime();
+      if(isNaN(ts)){ setMsg($("eMsg"),"Set a valid date first.","err"); return; }
+      setMsg($("eMsg"),"Looking up the temperature…");
+      const t = await tempAtAsync(ts);
+      if(t==null) setMsg($("eMsg"),"Couldn't get the temperature (offline?).","err");
+      else { $("eTemp").value = String(t); setMsg($("eMsg"),"Filled from Open-Meteo.","ok"); }
+    };
+    $("editDlg").addEventListener("click", ev=>{ if(ev.target===$("editDlg")) closeEdit(); });
+    document.addEventListener("keydown", ev=>{ if(ev.key==="Escape" && editId) closeEdit(); });
   }
 
   // ---------- wire up ----------
@@ -883,7 +1349,8 @@ svg text{fill:var(--muted);font-size:10px}
   $("digits").addEventListener("input", updateComputed);
   $("btnSave").onclick = save;
   $("btnCsv").onclick = exportCsv;
-  $("btnSync").onclick = syncDrive;
+  $("btnSync").onclick = ()=> syncDrive();
+  $("btnRestore").onclick = restoreDrive;
   $("btnHist").onclick = ()=>{
     showHist = !showHist;
     try{ localStorage.setItem(HIST_KEY, showHist ? "1" : "0"); }catch(e){}
@@ -891,7 +1358,10 @@ svg text{fill:var(--muted);font-size:10px}
   };
   $("btnImport").onclick = ()=> $("csvIn").click();
   $("csvIn").onchange = e=>{ importCsv(e.target.files[0]); e.target.value=""; };
-  document.addEventListener("visibilitychange", ()=>{ if(document.hidden) closeCamera(); else renderAllowance(); });
+  document.addEventListener("visibilitychange", ()=>{
+    if(document.hidden) closeCamera();
+    else { renderAllowance(); refreshWeather(false); syncIdle(); }
+  });
   $("alTotal").addEventListener("input", ()=>{
     const v = num($("alTotal").value);
     if(v>0){ al.total = v; saveAl(); renderAllowance(); }
@@ -903,10 +1373,12 @@ svg text{fill:var(--muted);font-size:10px}
     else if(v!=null){ al.start[y] = v; saveAl(); renderAllowance(); }
   });
 
-  load(); loadAl(); loadGd(); wireDriveSettings();
+  load(); loadAl(); loadGd(); loadWx();
+  wireDriveSettings(); wireWeather(); wireEdit();
   $("when").value = localInputValue(new Date());
   updateComputed();
   render();
+  refreshWeather(false).then(()=>autofillTemp(false));      // real weather for the model + temperature for the new reading
 })();
 </script>
 </body>
